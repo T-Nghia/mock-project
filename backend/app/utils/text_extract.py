@@ -1,0 +1,86 @@
+"""
+Utility helpers to extract text from uploaded files, split into chunks,
+build a simple extractive summary, and produce a lightweight local
+"embedding" vector so the AI Assistant works without any external API key.
+Swap the embed_text() implementation for a real embedding model/provider
+(OpenAI, sentence-transformers, etc.) when you're ready to go beyond the MVP.
+"""
+import hashlib
+import re
+
+from pypdf import PdfReader
+from docx import Document as DocxDocument
+
+EMBEDDING_DIM = 384
+
+
+def extract_text(file_path: str, file_type: str) -> str:
+    file_type = file_type.lower()
+    try:
+        if file_type == "pdf":
+            reader = PdfReader(file_path)
+            return "\n".join(page.extract_text() or "" for page in reader.pages)
+        if file_type in ("docx", "doc"):
+            doc = DocxDocument(file_path)
+            return "\n".join(p.text for p in doc.paragraphs)
+        # Fallback: treat as plain text
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
+def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> list[str]:
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return []
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap
+    return chunks
+
+
+def make_summary(text: str, max_sentences: int = 3) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return "(Không thể trích xuất nội dung tài liệu để tóm tắt tự động.)"
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    return " ".join(sentences[:max_sentences])[:1000]
+
+
+def embed_text(text: str) -> list[float]:
+    """
+    Deterministic pseudo-embedding based on token hashing (bag-of-hashed-words).
+    Not semantically rich, but stable and dependency-free — good enough to
+    demonstrate the pgvector pipeline end-to-end. Replace with a real
+    embedding model for production-quality RAG.
+    """
+    vector = [0.0] * EMBEDDING_DIM
+    words = re.findall(r"\w+", text.lower())
+    for word in words:
+        h = int(hashlib.md5(word.encode()).hexdigest(), 16)
+        idx = h % EMBEDDING_DIM
+        vector[idx] += 1.0
+    norm = sum(v * v for v in vector) ** 0.5
+    if norm > 0:
+        vector = [v / norm for v in vector]
+    return vector
+
+
+def suggest_questions(text: str, n: int = 4) -> list[str]:
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) > 20]
+    questions = []
+    for s in sentences[: n * 3]:
+        if len(questions) >= n:
+            break
+        snippet = s[:80]
+        questions.append(f"Tài liệu này nói gì về: \"{snippet}...\"?")
+    if not questions:
+        questions = [
+            "Tài liệu này nói về chủ đề gì?",
+            "Hãy tóm tắt nội dung chính của tài liệu.",
+        ]
+    return questions[:n]
