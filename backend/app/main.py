@@ -1,0 +1,31 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.core.config import settings
+from app import models  
+
+from app.api.routers import auth, folders, documents, search, dashboard, chat, social, bookmarks
+
+app = FastAPI(title=settings.APP_NAME)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Schema management (CREATE EXTENSION vector + all tables) is handled by
+# Alembic migrations now, run automatically before the API starts — see
+# the `backend` service command in docker-compose.yml and alembic/env.py.
+
+
+@app.get("/")
+def root():
+    return {"app": settings.APP_NAME, "status": "ok"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
