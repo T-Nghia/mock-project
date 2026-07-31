@@ -30,7 +30,7 @@ services:
     container_name: slrms-migrate
     command: alembic upgrade head
     env_file: .env
-    evironment:
+    environment:
       DATABASE_URL: ${DATABASE_URL}
     volumes:
       - ./backend:/app

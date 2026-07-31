@@ -2,9 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app import models  
+from app import models
+from app.api.routes.auth import router as auth_router
 
-from app.api.routers import auth, folders, documents, search, dashboard, chat, social, bookmarks
 
 app = FastAPI(title=settings.APP_NAME)
 
@@ -15,6 +15,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
 
 # Schema management (CREATE EXTENSION vector + all tables) is handled by
 # Alembic migrations now, run automatically before the API starts — see
