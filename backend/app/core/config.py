@@ -11,9 +11,10 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = "change-me-in-env"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     UPLOAD_DIR: str = "/app/uploads"
-    MAX_UPLOAD_SIZE_MB: int 50
+    MAX_UPLOAD_SIZE_MB: int = 50
 
     # Optional: set to enable real LLM-based RAG answers / embedding.
     # When empty, the AI Assistant falls back to a local keyword-search
