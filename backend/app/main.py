@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app import models  
 
-from app.api.routers import auth, folders, documents, search, dashboard, chat, social, bookmarks
+#from app.api.routers import auth
 
 app = FastAPI(title=settings.APP_NAME)
 
