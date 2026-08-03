@@ -2,24 +2,51 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest, RegisterResponse
-from app.services.auth import login_user, register_user
+from app.core.security import get_current_user, require_role
+from app.schemas.auth import (
+    LoginRequest,
+    RefreshRequest,
+    RegisterRequest,
+    TeacherCreate,
+    TokenResponse,
+    UserLogin,
+    UserRegister,
+    UserResponse,
+)
+from app.services.auth_service import AuthService
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
-def register(request: RegisterRequest, db: Session = Depends(get_db)) -> RegisterResponse:
-    user = register_user(db, request)
-    return RegisterResponse(message="Đăng ký thành công", user=user)
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def register(data: RegisterRequest, db: Session = Depends(get_db)):
+    return AuthService(db).register(data)
 
 
-@router.post("/login", response_model=LoginResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
-    user, access_token = login_user(db, request)
-    return LoginResponse(
-        message="Đăng nhập thành công",
-        access_token=access_token,
-        user=user,
-    )
+@router.post("/login", response_model=TokenResponse)
+def login(data: LoginRequest, db: Session = Depends(get_db)):
+    return AuthService(db).login(data)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh(data: RefreshRequest, db: Session = Depends(get_db)):
+    return AuthService(db).refresh(data.refresh_token)
+
+@router.get("/me", response_model=UserResponse)
+def get_me(current_user=Depends(get_current_user)):
+    return current_user
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    AuthService(db).logout(current_user.id)
+
+
+@router.post(
+    "/admin/teachers",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role("admin"))],
+)
+def create_teacher(data: TeacherCreate, db: Session = Depends(get_db)):
+    return AuthService(db).create_teacher(data)
