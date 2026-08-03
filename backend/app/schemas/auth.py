@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.models.user import UserRole
+
 
 class RegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=255)
@@ -43,6 +45,18 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class UserRoleUpdate(BaseModel):
+    role: UserRole
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class UserStatusUpdate(BaseModel):
+    is_active: bool
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class UserResponse(BaseModel):
     id: UUID
     full_name: str
@@ -65,3 +79,8 @@ class LoginResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class UserPermissionsResponse(BaseModel):
+    role: str
+    permissions: list[str]

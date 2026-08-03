@@ -14,6 +14,21 @@ class UserRepository:
     def get_by_email(self, email: str) -> User | None:
         return self.db.query(User).filter(User.email == email.strip().lower()).first()
 
+    def list_all(self) -> list[User]:
+        return self.db.query(User).order_by(User.created_at.desc()).all()
+
+    def update_role(self, user: User, role: UserRole) -> User:
+        user.role = role
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def update_active_status(self, user: User, is_active: bool) -> User:
+        user.is_active = is_active
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
     def create(
         self, 
         full_name: str, 
