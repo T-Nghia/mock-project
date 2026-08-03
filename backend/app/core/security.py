@@ -1,19 +1,18 @@
 import uuid
-
 from datetime import datetime, timedelta, timezone
 
-from jose import jwt, JWTError
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.permissions import Permission, has_permission, normalize_permission, normalize_role
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl = "api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 def hash_password(password: str) -> str:
@@ -32,16 +31,20 @@ def create_access_token(subject: str, role: str) -> str:
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_refresh_token(subject: str) -> str:
+def create_refresh_token(subject: str, role: str) -> tuple[str, str]:
     expire = datetime.now(timezone.utc) + timedelta(
         days=getattr(settings, "REFRESH_TOKEN_EXPIRE_DAYS", 7)
     )
+    jti = str(uuid.uuid4())
     payload = {
         "sub": str(subject),
+        "role": role,
         "type": "refresh",
+        "jti": jti,
         "exp": expire,
     }
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    return token, jti
 
 
 def decode_access_token(token: str) -> dict | None:
@@ -52,16 +55,15 @@ def decode_access_token(token: str) -> dict | None:
     except JWTError:
         return None
 
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     from app.repositories.user_repo import UserRepository
 
     payload = decode_access_token(token)
-    
-    # Kiểm tra payload và ép 'type' về chữ thường để tránh lỗi hoa/thường
     if payload is None or payload.get("type") != "access":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token không hợp lệ hoặc đã hết hạn",
+            detail="Token khong hop le hoac da het han",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -69,26 +71,42 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         user_id = uuid.UUID(payload["sub"])
     except (ValueError, KeyError, TypeError):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Token không hợp lệ"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token khong hop le",
         )
 
     user = UserRepository(db).get_by_id(user_id)
     if not user or not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Tài khoản không tồn tại hoặc đã bị khóa"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Tai khoan khong ton tai hoac da bi khoa",
         )
     return user
 
 
 def require_role(*roles: str):
+    allowed_roles = {normalize_role(role).value for role in roles}
+
     def checker(current_user=Depends(get_current_user)):
         user_role = getattr(current_user.role, "value", current_user.role)
-        if user_role not in roles:
+        if normalize_role(user_role).value not in allowed_roles:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, 
-                detail="Không có quyền truy cập"
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Khong co quyen truy cap",
+            )
+        return current_user
+
+    return checker
+
+
+def require_permission(permission: Permission | str):
+    required_permission = normalize_permission(permission)
+
+    def checker(current_user=Depends(get_current_user)):
+        if not has_permission(current_user.role, required_permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Khong co quyen truy cap",
             )
         return current_user
 
