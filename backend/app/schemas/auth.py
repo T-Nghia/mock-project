@@ -12,12 +12,35 @@ class RegisterRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+UserRegister = RegisterRequest
+
+
+class TeacherCreate(BaseModel):
+    full_name: str = Field(..., min_length=1, max_length=255)
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+
+    model_config = ConfigDict(extra="forbid")
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8)
 
     model_config = ConfigDict(extra="forbid")
+
+
+UserLogin = LoginRequest
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 
 class UserResponse(BaseModel):
@@ -39,5 +62,6 @@ class RegisterResponse(BaseModel):
 class LoginResponse(BaseModel):
     message: str
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     user: UserResponse
