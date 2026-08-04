@@ -1,0 +1,122 @@
+import math
+import uuid
+from typing import Sequence
+from sqlalchemy import select, func, or_
+from sqlalchemy.orm import Session
+
+from app.models.document import Document
+from app.models.folder import Folder
+from app.models.tag import Tag, DocumentTag
+from app.schemas.search import DocumentSearchResult, SearchPaginatedResponse
+
+
+class SearchRepository:
+    """Repository pattern for handling document search database queries."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def search_documents(
+        self,
+        q: str | None = None,
+        tags: list[str] | None = None,
+        subject: str | None = None,
+        folder_id: uuid.UUID | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> SearchPaginatedResponse:
+        # Base query joining Document with Folder
+        stmt = (
+            select(
+                Document,
+                Folder.name.label("folder_name"),
+                Folder.subject.label("folder_subject"),
+            )
+            .outerjoin(Folder, Document.folder_id == Folder.id)
+            .distinct()
+        )
+
+        filters = []
+
+        # 1. Search by Name (title ilike)
+        if q and q.strip():
+            clean_q = q.strip()
+            filters.append(Document.title.ilike(f"%{clean_q}%"))
+
+        # 2. Search by Subject
+        if subject and subject.strip():
+            clean_subject = subject.strip()
+            filters.append(Folder.subject.ilike(f"%{clean_subject}%"))
+
+        # 3. Filter by Folder ID
+        if folder_id:
+            filters.append(Document.folder_id == folder_id)
+
+        # 4. Search by Tags
+        if tags and len(tags) > 0:
+            clean_tags = [t.strip().lower() for t in tags if t.strip()]
+            if clean_tags:
+                stmt = stmt.join(DocumentTag, Document.id == DocumentTag.document_id).join(
+                    Tag, DocumentTag.tag_id == Tag.id
+                )
+                filters.append(func.lower(Tag.name).in_(clean_tags))
+
+        if filters:
+            stmt = stmt.where(*filters)
+
+        # Calculate total count
+        count_stmt = select(func.count(func.distinct(Document.id))).select_from(
+            stmt.subquery()
+        )
+        total_count = self.db.scalar(count_stmt) or 0
+
+        # Pagination
+        offset = (page - 1) * page_size
+        stmt = stmt.order_by(Document.created_at.desc()).offset(offset).limit(page_size)
+
+        results = self.db.execute(stmt).all()
+
+        # Fetch tags for each retrieved document
+        doc_ids = [row.Document.id for row in results]
+        tags_by_doc: dict[uuid.UUID, list[str]] = {doc_id: [] for doc_id in doc_ids}
+
+        if doc_ids:
+            tag_stmt = (
+                select(DocumentTag.document_id, Tag.name)
+                .join(Tag, DocumentTag.tag_id == Tag.id)
+                .where(DocumentTag.document_id.in_(doc_ids))
+            )
+            tag_rows = self.db.execute(tag_stmt).all()
+            for doc_id, tag_name in tag_rows:
+                tags_by_doc[doc_id].append(tag_name)
+
+        # Build response items
+        items = []
+        for row in results:
+            doc: Document = row.Document
+            folder_name: str | None = row.folder_name
+            folder_subject: str | None = row.folder_subject
+
+            item = DocumentSearchResult(
+                id=doc.id,
+                title=doc.title,
+                file_type=doc.file_type,
+                summary=doc.summary,
+                folder_id=doc.folder_id,
+                folder_name=folder_name,
+                subject=folder_subject,
+                tags=tags_by_doc.get(doc.id, []),
+                uploaded_by=doc.uploaded_by,
+                created_at=doc.created_at,
+            )
+            items.append(item)
+
+        total_pages = math.ceil(total_count / page_size) if total_count > 0 else 0
+
+        return SearchPaginatedResponse(
+            items=items,
+            total=total_count,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+        )
