@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -32,7 +34,7 @@ class TagRepository:
             return tag
         return self.create(name)
 
-    def attach_to_document(self, document_id: int, tag_id: int) -> None:
+    def attach_to_document(self, document_id: uuid.UUID, tag_id: uuid.UUID) -> None:
         """Gắn Tag vào Document (nếu chưa được gắn trước đó)."""
         stmt = select(DocumentTag).where(
             DocumentTag.document_id == document_id,
@@ -44,7 +46,7 @@ class TagRepository:
             self.db.add(DocumentTag(document_id=document_id, tag_id=tag_id))
             self.db.commit()
 
-    def get_tags_for_document(self, document_id: int) -> list[str]:
+    def get_tags_for_document(self, document_id: uuid.UUID) -> list[str]:
         """Lấy danh sách tên tất cả các Tag thuộc về một Document."""
         stmt = (
             select(Tag.name)
