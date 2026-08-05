@@ -20,7 +20,7 @@ def get_current_user(
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication token",
+            detail="Thieu token xac thuc",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -28,7 +28,7 @@ def get_current_user(
     if not payload or "sub" not in payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired authentication token",
+            detail="Token xac thuc khong hop le hoac da het han",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -38,14 +38,14 @@ def get_current_user(
     except (ValueError, TypeError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid user ID token payload",
+            detail="ID nguoi dung trong token khong hop le",
         )
 
     user = db.scalar(select(User).where(User.id == user_id))
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive",
+            detail="Nguoi dung khong ton tai hoac da bi vo hieu hoa",
         )
 
     return user

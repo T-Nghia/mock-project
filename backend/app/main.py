@@ -16,9 +16,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register API Routers
 app.include_router(auth_router)
 app.include_router(search_router.router, prefix="/api/v1")
+
+# Schema management (CREATE EXTENSION vector + all tables) is handled by
+# Alembic migrations now, run automatically before the API starts — see
+# the `backend` service command in docker-compose.yml and alembic/env.py.
 
 
 @app.get("/")

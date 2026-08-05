@@ -4,17 +4,15 @@ from pydantic import BaseModel, Field, ConfigDict
 
 
 class SearchQueryParams(BaseModel):
-    """Query parameters for document search with validation."""
-    q: str | None = Field(default=None, description="Search query by document name/title (case-insensitive substring or full-text)")
-    tags: list[str] | None = Field(default=None, description="Filter by tag names")
-    subject: str | None = Field(default=None, description="Filter by subject name")
-    folder_id: uuid.UUID | None = Field(default=None, description="Filter by specific folder ID")
-    page: int = Field(default=1, ge=1, description="Page number starting from 1")
-    page_size: int = Field(default=20, ge=1, le=100, description="Items per page (1-100)")
+    title: str | None = Field(default=None)
+    tags: list[str] | None = Field(default=None)
+    subject: str | None = Field(default=None)
+    folder_id: uuid.UUID | None = Field(default=None)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
 
 
 class DocumentSearchResult(BaseModel):
-    """Schema for a single document search result item."""
     id: uuid.UUID
     title: str
     file_type: str
@@ -30,7 +28,6 @@ class DocumentSearchResult(BaseModel):
 
 
 class SearchPaginatedResponse(BaseModel):
-    """Schema for paginated search results response."""
     items: list[DocumentSearchResult]
     total: int = Field(ge=0)
     page: int = Field(ge=1)
