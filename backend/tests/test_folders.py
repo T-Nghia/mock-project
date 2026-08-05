@@ -1,5 +1,6 @@
 import os
 import unittest
+import uuid
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -196,7 +197,7 @@ class FolderAPITestCase(unittest.TestCase):
             title="Tai lieu bien",
             file_path="uploads/variables.pdf",
             file_type="pdf",
-            folder_id=chapter["id"],
+            folder_id=uuid.UUID(chapter["id"]),
             uploaded_by=self.teacher.id,
             processing_status=ProcessingStatus.PENDING,
         )
