@@ -6,13 +6,13 @@ from app.schemas.search import SearchPaginatedResponse
 
 
 class SearchService:
-    """Service layer handling document search business logic."""
 
     def __init__(self, db: Session):
         self.repository = SearchRepository(db)
 
     def search(
         self,
+        keyword: str | None = None,
         title: str | None = None,
         tags: list[str] | None = None,
         subject: str | None = None,
@@ -20,10 +20,9 @@ class SearchService:
         page: int = 1,
         page_size: int = 20,
     ) -> SearchPaginatedResponse:
-        """
-        Execute document search across Title, Tag, and Subject filters.
-        """
+
         return self.repository.search_documents(
+            keyword=keyword,
             title=title,
             tags=tags,
             subject=subject,

@@ -10,13 +10,13 @@ from app.schemas.search import DocumentSearchResult, SearchPaginatedResponse
 
 
 class SearchRepository:
-    """Repository pattern for handling document search database queries."""
 
     def __init__(self, db: Session):
         self.db = db
 
     def search_documents(
         self,
+        keyword: str | None = None,
         title: str | None = None,
         tags: list[str] | None = None,
         subject: str | None = None,
@@ -24,36 +24,48 @@ class SearchRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> SearchPaginatedResponse:
-        # Base query selecting Document along with Folder info
-        stmt = select(
-            Document,
-            Folder.name.label("folder_name"),
-            Folder.subject.label("folder_subject"),
-        ).outerjoin(Folder, Document.folder_id == Folder.id)
+        stmt = (
+            select(
+                Document,
+                Folder.name.label("folder_name"),
+                Folder.subject.label("folder_subject"),
+            )
+            .outerjoin(Folder, Document.folder_id == Folder.id)
+            .outerjoin(DocumentTag, Document.id == DocumentTag.document_id)
+            .outerjoin(Tag, DocumentTag.tag_id == Tag.id)
+        )
 
         filters = []
 
-        # 1. Search by Title (title ilike)
+        # 1. Unified Search Keyword (OR condition across Title, Tag Name, Subject)
+        if keyword and keyword.strip():
+            k = keyword.strip()
+            filters.append(
+                or_(
+                    Document.title.ilike(f"%{k}%"),
+                    Tag.name.ilike(f"%{k}%"),
+                    Folder.subject.ilike(f"%{k}%"),
+                )
+            )
+
+        # 2. Filter specifically by Document Title
         if title and title.strip():
             clean_title = title.strip()
             filters.append(Document.title.ilike(f"%{clean_title}%"))
 
-        # 2. Search by Subject
+        # 3. Filter specifically by Folder Subject
         if subject and subject.strip():
             clean_subject = subject.strip()
             filters.append(Folder.subject.ilike(f"%{clean_subject}%"))
 
-        # 3. Filter by Folder ID
+        # 4. Filter specifically by Folder ID
         if folder_id:
             filters.append(Document.folder_id == folder_id)
 
-        # 4. Search by Tags
+        # 5. Filter specifically by Tag Names
         if tags and len(tags) > 0:
             clean_tags = [t.strip() for t in tags if t.strip()]
             if clean_tags:
-                stmt = stmt.join(DocumentTag, Document.id == DocumentTag.document_id).join(
-                    Tag, DocumentTag.tag_id == Tag.id
-                )
                 tag_conditions = [Tag.name.ilike(f"%{t}%") for t in clean_tags]
                 filters.append(or_(*tag_conditions))
 
@@ -62,18 +74,15 @@ class SearchRepository:
 
         stmt = stmt.distinct()
 
-        # Count total matching records using subquery
         subq = stmt.subquery()
         count_stmt = select(func.count()).select_from(subq)
         total_count = self.db.scalar(count_stmt) or 0
 
-        # Pagination & ordering
         offset = (page - 1) * page_size
         stmt = stmt.order_by(Document.created_at.desc()).offset(offset).limit(page_size)
 
         results = self.db.execute(stmt).all()
 
-        # Fetch tags for each retrieved document
         doc_ids = [row.Document.id for row in results]
         tags_by_doc: dict[uuid.UUID, list[str]] = {doc_id: [] for doc_id in doc_ids}
 
@@ -87,7 +96,6 @@ class SearchRepository:
             for doc_id, tag_name in tag_rows:
                 tags_by_doc[doc_id].append(tag_name)
 
-        # Build result schema items
         items = []
         for row in results:
             doc: Document = row.Document

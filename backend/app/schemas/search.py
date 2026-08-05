@@ -4,12 +4,13 @@ from pydantic import BaseModel, Field, ConfigDict
 
 
 class SearchQueryParams(BaseModel):
+    keyword: str | None = Field(default=None)
     title: str | None = Field(default=None)
     tags: list[str] | None = Field(default=None)
     subject: str | None = Field(default=None)
     folder_id: uuid.UUID | None = Field(default=None)
     page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=100)
+    page_size: int = Field(default=20, ge=1)
 
 
 class DocumentSearchResult(BaseModel):

@@ -28,7 +28,7 @@ services:
   migrate:
     build: ./backend
     container_name: slrms-migrate
-    command: alembic upgrade head
+    command: sh -c "alembic upgrade head && python -m app.seed"
     env_file: .env
     environment:
       DATABASE_URL: ${DATABASE_URL}
