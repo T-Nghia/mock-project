@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app import models
 from app.api.routers.auth import router as auth_router
+from app.api.routers.dashboard import router as dashboard_router
 from app.api.routers.documents import router as documents_router
 from app.api.routers.folders import router as folders_router
 
@@ -19,6 +20,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(dashboard_router)
 app.include_router(documents_router)
 app.include_router(folders_router)
 
