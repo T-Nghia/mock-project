@@ -12,7 +12,7 @@ from app.core.database import get_db
 from app.core.permissions import Permission, has_permission, normalize_permission, normalize_role
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login/swagger")
 
 
 def hash_password(password: str) -> str:

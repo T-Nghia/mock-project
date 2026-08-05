@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -31,6 +32,16 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
     return AuthService(db).login(data)
+
+
+@router.post("/login/swagger", response_model=TokenResponse, include_in_schema=False)
+def login_swagger(
+    form_data: OAuth2PasswordRequestForm = Depends(), 
+    db: Session = Depends(get_db)
+):
+    # Map dữ liệu Form Data từ Swagger sang LoginRequest schema
+    login_data = LoginRequest(email=form_data.username, password=form_data.password)
+    return AuthService(db).login(login_data)
 
 
 @router.post("/refresh", response_model=TokenResponse)

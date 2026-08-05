@@ -3,8 +3,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.search import SearchPaginatedResponse
 from app.services.search_service import SearchService
@@ -16,41 +16,39 @@ router = APIRouter(prefix="/search", tags=["Search"])
     "",
     response_model=SearchPaginatedResponse,
     status_code=status.HTTP_200_OK,
-    summary="Search documents by Title, Tag, and Subject",
-    description=(
-        "Search documents flexible filtering across multiple criteria:\n"
-        "- **Search by Title (`title`)**: Filter documents matching query substring in title.\n"
-        "- **Search by Tag (`tags`)**: Filter documents associated with specified tag names.\n"
-        "- **Search by Subject (`subject`)**: Filter documents belonging to folders matching subject name.\n"
-        "- **Filter Folder (`folder_id`)**: Filter documents inside a specific folder.\n"
-        "\nAll filters can be combined together."
-    ),
+    summary="Search documents across keyword, title, tags, subject, and folder_id",
 )
 def search_documents(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    keyword: Annotated[
+        str | None,
+        Query(
+            description="Unified search keyword (searches across title, tag name, and subject)",
+        ),
+    ] = None,
     title: Annotated[
         str | None,
         Query(
-            description="Search query by document title",
+            description="Filter specifically by document title",
         ),
     ] = None,
     tags: Annotated[
         list[str] | None,
         Query(
-            description="Filter by tag names",
+            description="Filter specifically by tag names",
         ),
     ] = None,
     subject: Annotated[
         str | None,
         Query(
-            description="Filter by subject name",
+            description="Filter specifically by subject name",
         ),
     ] = None,
     folder_id: Annotated[
         uuid.UUID | None,
         Query(
-            description="Filter by specific folder UUID",
+            description="Filter specifically by folder UUID",
         ),
     ] = None,
     page: Annotated[
@@ -71,6 +69,7 @@ def search_documents(
 ) -> SearchPaginatedResponse:
     service = SearchService(db)
     return service.search(
+        keyword=keyword,
         title=title,
         tags=tags,
         subject=subject,
