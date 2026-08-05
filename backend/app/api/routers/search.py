@@ -16,10 +16,10 @@ router = APIRouter(prefix="/search", tags=["Search"])
     "",
     response_model=SearchPaginatedResponse,
     status_code=status.HTTP_200_OK,
-    summary="Search documents by Name, Tag, and Subject",
+    summary="Search documents by Title, Tag, and Subject",
     description=(
         "Search documents flexible filtering across multiple criteria:\n"
-        "- **Search by Name (`q`)**: Filter documents matching query substring in title.\n"
+        "- **Search by Title (`title`)**: Filter documents matching query substring in title.\n"
         "- **Search by Tag (`tags`)**: Filter documents associated with specified tag names.\n"
         "- **Search by Subject (`subject`)**: Filter documents belonging to folders matching subject name.\n"
         "- **Filter Folder (`folder_id`)**: Filter documents inside a specific folder.\n"
@@ -29,25 +29,22 @@ router = APIRouter(prefix="/search", tags=["Search"])
 def search_documents(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
-    q: Annotated[
+    title: Annotated[
         str | None,
         Query(
-            description="Search query by document name/title",
-            example="Giải tích 1",
+            description="Search query by document title",
         ),
     ] = None,
     tags: Annotated[
         list[str] | None,
         Query(
-            description="Filter by tag names (pass multiple times e.g. ?tags=de-thi&tags=toan)",
-            example=["de-thi"],
+            description="Filter by tag names",
         ),
     ] = None,
     subject: Annotated[
         str | None,
         Query(
             description="Filter by subject name",
-            example="Toán cao cấp",
         ),
     ] = None,
     folder_id: Annotated[
@@ -74,7 +71,7 @@ def search_documents(
 ) -> SearchPaginatedResponse:
     service = SearchService(db)
     return service.search(
-        q=q,
+        title=title,
         tags=tags,
         subject=subject,
         folder_id=folder_id,

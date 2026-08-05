@@ -1,6 +1,5 @@
 import math
 import uuid
-from typing import Sequence
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
 
@@ -18,30 +17,26 @@ class SearchRepository:
 
     def search_documents(
         self,
-        q: str | None = None,
+        title: str | None = None,
         tags: list[str] | None = None,
         subject: str | None = None,
         folder_id: uuid.UUID | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> SearchPaginatedResponse:
-        # Base query joining Document with Folder
-        stmt = (
-            select(
-                Document,
-                Folder.name.label("folder_name"),
-                Folder.subject.label("folder_subject"),
-            )
-            .outerjoin(Folder, Document.folder_id == Folder.id)
-            .distinct()
-        )
+        # Base query selecting Document along with Folder info
+        stmt = select(
+            Document,
+            Folder.name.label("folder_name"),
+            Folder.subject.label("folder_subject"),
+        ).outerjoin(Folder, Document.folder_id == Folder.id)
 
         filters = []
 
-        # 1. Search by Name (title ilike)
-        if q and q.strip():
-            clean_q = q.strip()
-            filters.append(Document.title.ilike(f"%{clean_q}%"))
+        # 1. Search by Title (title ilike)
+        if title and title.strip():
+            clean_title = title.strip()
+            filters.append(Document.title.ilike(f"%{clean_title}%"))
 
         # 2. Search by Subject
         if subject and subject.strip():
@@ -54,23 +49,25 @@ class SearchRepository:
 
         # 4. Search by Tags
         if tags and len(tags) > 0:
-            clean_tags = [t.strip().lower() for t in tags if t.strip()]
+            clean_tags = [t.strip() for t in tags if t.strip()]
             if clean_tags:
                 stmt = stmt.join(DocumentTag, Document.id == DocumentTag.document_id).join(
                     Tag, DocumentTag.tag_id == Tag.id
                 )
-                filters.append(func.lower(Tag.name).in_(clean_tags))
+                tag_conditions = [Tag.name.ilike(f"%{t}%") for t in clean_tags]
+                filters.append(or_(*tag_conditions))
 
         if filters:
             stmt = stmt.where(*filters)
 
-        # Calculate total count
-        count_stmt = select(func.count(func.distinct(Document.id))).select_from(
-            stmt.subquery()
-        )
+        stmt = stmt.distinct()
+
+        # Count total matching records using subquery
+        subq = stmt.subquery()
+        count_stmt = select(func.count()).select_from(subq)
         total_count = self.db.scalar(count_stmt) or 0
 
-        # Pagination
+        # Pagination & ordering
         offset = (page - 1) * page_size
         stmt = stmt.order_by(Document.created_at.desc()).offset(offset).limit(page_size)
 
@@ -90,7 +87,7 @@ class SearchRepository:
             for doc_id, tag_name in tag_rows:
                 tags_by_doc[doc_id].append(tag_name)
 
-        # Build response items
+        # Build result schema items
         items = []
         for row in results:
             doc: Document = row.Document

@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy.orm import Session
 
-from app.repositories.search import SearchRepository
+from app.repositories.search_repo import SearchRepository
 from app.schemas.search import SearchPaginatedResponse
 
 
@@ -13,7 +13,7 @@ class SearchService:
 
     def search(
         self,
-        q: str | None = None,
+        title: str | None = None,
         tags: list[str] | None = None,
         subject: str | None = None,
         folder_id: uuid.UUID | None = None,
@@ -21,10 +21,10 @@ class SearchService:
         page_size: int = 20,
     ) -> SearchPaginatedResponse:
         """
-        Execute document search across Name, Tag, and Subject filters.
+        Execute document search across Title, Tag, and Subject filters.
         """
         return self.repository.search_documents(
-            q=q,
+            title=title,
             tags=tags,
             subject=subject,
             folder_id=folder_id,
