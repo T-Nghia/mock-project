@@ -26,6 +26,9 @@ from app.schemas.auth import (
 
 
 class AuthService:
+
+    _DUMMY_HASH = hash_password("this-is-not-a-real-password") # Tính 1 lần lúc import module
+
     def __init__(self, db: Session):
         self.repo = UserRepository(db)
 
@@ -96,15 +99,16 @@ class AuthService:
         access = create_access_token(str(user.id), user.role.value)
         refresh, jti = create_refresh_token(str(user.id), user.role.value)
         redis_client.setex(
-            f"refresh:{user.id}",
+            f"refresh:{user.id}:{jti}",
             settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-            jti,
-        )
+            "valid",
+        ) # Hỗ trợ 1 phiên đăng nhập/user
         return TokenResponse(access_token=access, refresh_token=refresh)
 
     def login(self, data: UserLogin) -> TokenResponse:
         user = self.repo.get_by_email(data.email)
-        if not user or not verify_password(data.password, user.hashed_password):
+        password_ok = verify_password(data.password, user.hashed_password if user else self._DUMMY_HASH) # Tránh timing attack
+        if not user or not password_ok:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email hoac mat khau khong dung")
 
         if not user.is_active:
@@ -117,9 +121,10 @@ class AuthService:
         if payload is None or payload.get("type") != "refresh":
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token khong hop le hoac da het han")
 
-        stored_jti = redis_client.get(f"refresh:{payload['sub']}")
-        if not stored_jti or stored_jti != payload.get("jti"):
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Refresh token da bi thu hoi")
+        key = f"refresh:{payload['sub']}:{payload['jti']}"
+        if not redis_client.get(key):
+            raise HTTPException(401, "Refresh token da bi thu hoi")
+        redis_client.delete(key)
 
         user = self.repo.get_by_id(uuid.UUID(payload["sub"]))
         if not user or not user.is_active:
@@ -127,5 +132,9 @@ class AuthService:
 
         return self._issue_tokens(user)
 
-    def logout(self, user_id: uuid.UUID):
-        redis_client.delete(f"refresh:{user_id}")
+    def logout(self, user_id: uuid.UUID, jti: str | None = None):
+        if jti:
+            redis_client.delete(f"refresh:{user_id}:{jti}")
+        else:
+            for key in redis_client.scan_iter(f"refresh:{user_id}:*"):
+                redis_client.delete(key)
