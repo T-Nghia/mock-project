@@ -23,7 +23,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(documents_router)
 app.include_router(folders_router)
-app.include_router(search_router, prefix="/api/v1")
+app.include_router(search_router)
 app.include_router(dashboard_router)
 
 # Schema management (CREATE EXTENSION vector + all tables) is handled by
