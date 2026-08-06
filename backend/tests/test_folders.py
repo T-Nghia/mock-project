@@ -1,5 +1,6 @@
 import os
 import unittest
+import uuid
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
