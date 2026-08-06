@@ -127,45 +127,45 @@ class TestSearchAPI(unittest.TestCase):
         app.dependency_overrides.clear()
 
     def test_unauthenticated_search(self):
-        response = self.client.get("/api/v1/search")
+        response = self.client.get("/search")
         self.assertEqual(response.status_code, 401)
 
     def test_keyword_search_matches_title(self):
-        response = self.client.get("/api/v1/search?keyword=Giải tích", headers=self.headers)
+        response = self.client.get("/search?keyword=Giải tích", headers=self.headers)
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["total"], 1)
         self.assertEqual(data["items"][0]["title"], "Giáo trình Giải tích 1")
 
     def test_keyword_search_matches_tag(self):
-        response = self.client.get("/api/v1/search?keyword=Thí nghiệm", headers=self.headers)
+        response = self.client.get("/search?keyword=Thí nghiệm", headers=self.headers)
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["total"], 1)
         self.assertEqual(data["items"][0]["title"], "Thí nghiệm Cơ học")
 
     def test_keyword_search_matches_subject(self):
-        response = self.client.get("/api/v1/search?keyword=Hóa Học", headers=self.headers)
+        response = self.client.get("/search?keyword=Hóa Học", headers=self.headers)
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["total"], 1)
         self.assertEqual(data["items"][0]["title"], "Hóa học Hữu cơ Nâng cao")
 
     def test_keyword_search_matches_multiple_or(self):
-        response = self.client.get("/api/v1/search?keyword=Toán", headers=self.headers)
+        response = self.client.get("/search?keyword=Toán", headers=self.headers)
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["total"], 3)
 
     def test_keyword_search_no_match(self):
-        response = self.client.get("/api/v1/search?keyword=Triết học", headers=self.headers)
+        response = self.client.get("/search?keyword=Triết học", headers=self.headers)
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["total"], 0)
         self.assertEqual(len(data["items"]), 0)
 
     def test_keyword_search_whitespace(self):
-        response = self.client.get("/api/v1/search?keyword=%20%20Giải%20tích%20%20", headers=self.headers)
+        response = self.client.get("/search?keyword=%20%20Giải%20tích%20%20", headers=self.headers)
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["total"], 1)
