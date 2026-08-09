@@ -15,6 +15,7 @@ erDiagram
     USERS ||--o{ COMMENTS : writes
     USERS ||--o{ RATINGS : gives
     USERS ||--o{ CHAT_SESSIONS : starts
+    USERS ||--o{ PASSWORD_RESET_TOKENS : requests
 
     FOLDERS ||--o{ FOLDERS : "parent_folder_id (subtree)"
     FOLDERS ||--o{ DOCUMENTS : contains
@@ -117,6 +118,15 @@ erDiagram
         string role "user | assistant"
         text content
         json source_chunks "nullable, trích dẫn nguồn RAG"
+        datetime created_at
+    }
+
+    PASSWORD_RESET_TOKENS {
+        uuid id PK
+        uuid user_id FK "users.id, ON DELETE CASCADE"
+        string token_hash UK
+        datetime expires_at
+        datetime used_at "nullable"
         datetime created_at
     }
 ```
