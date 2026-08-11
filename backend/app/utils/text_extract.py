@@ -5,11 +5,15 @@ build a simple extractive summary, and produce a lightweight local
 Swap the embed_text() implementation for a real embedding model/provider
 (OpenAI, sentence-transformers, etc.) when you're ready to go beyond the MVP.
 """
+import json
 import hashlib
 import re
 
+from openai import OpenAI
 from pypdf import PdfReader
 from docx import Document as DocxDocument
+
+from app.core.config import settings
 
 EMBEDDING_DIM = 384
 
@@ -49,6 +53,79 @@ def make_summary(text: str, max_sentences: int = 3) -> str:
         return "(Không thể trích xuất nội dung tài liệu để tóm tắt tự động.)"
     sentences = re.split(r"(?<=[.!?])\s+", text)
     return " ".join(sentences[:max_sentences])[:1000]
+
+
+def _take_first_words(text: str, max_words: int = 2000) -> str:
+    words = text.split()
+    if len(words) <= max_words:
+        return text.strip()
+    return " ".join(words[:max_words]).strip()
+
+
+def build_suggested_questions_prompt(extracted_text: str) -> str:
+    excerpt = _take_first_words(extracted_text, 2000)
+    return f"""
+Bạn là một trợ lý giáo dục thông minh. Hãy đọc đoạn văn bản tài liệu dưới đây và tạo ra
+đúng 3 câu hỏi gợi ý ngắn gọn, tự nhiên bằng tiếng Việt mà người học sẽ muốn hỏi AI về tài
+liệu này.
+
+Nội dung tài liệu:
+{excerpt}
+
+Yêu cầu: Trả về đúng JSON object chuẩn, không thêm giải thích, không bọc markdown,
+không dùng văn bản ngoài JSON. Schema bắt buộc:
+{{"questions": ["Câu hỏi 1?", "Câu hỏi 2?", "Câu hỏi 3?"]}}
+""".strip()
+
+
+def _extract_json_array(raw_text: str) -> list[str]:
+    cleaned = raw_text.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
+
+    data = json.loads(cleaned)
+    if isinstance(data, dict):
+        data = data.get("questions", [])
+    if not isinstance(data, list):
+        raise ValueError("LLM response is not a JSON array")
+
+    questions: list[str] = []
+    for item in data:
+        if isinstance(item, str):
+            question = item.strip()
+            if question:
+                questions.append(question)
+    return questions
+
+
+def generate_suggested_questions(text: str, n: int = 3) -> list[str]:
+    fallback = suggest_questions(text, n=n)
+    api_key = settings.OPENAI_API_KEY.strip()
+    if not api_key:
+        return fallback[:n]
+
+    prompt = build_suggested_questions_prompt(text)
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that outputs JSON.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+        )
+        content = response.choices[0].message.content or ""
+        questions = _extract_json_array(content)
+        if questions:
+            return questions[:n]
+    except Exception:
+        return fallback[:n]
+
+    return fallback[:n]
 
 
 def embed_text(text: str) -> list[float]:

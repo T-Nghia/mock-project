@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.document import ProcessingStatus
 
@@ -14,6 +14,7 @@ class DocumentResponse(BaseModel):
     file_type: str
     folder_id: UUID | None
     uploaded_by: UUID
+    suggested_questions: list[str] = Field(default_factory=list)
     processing_status: ProcessingStatus
     created_at: datetime
 
@@ -35,6 +36,7 @@ class DocumentMetadataResponse(BaseModel):
     folder_id: UUID | None
     uploaded_by: UploaderInfo
     summary: str | None
+    suggested_questions: list[str] = Field(default_factory=list)
     processing_status: ProcessingStatus
     tags: list[str]
     created_at: datetime
