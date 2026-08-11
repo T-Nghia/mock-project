@@ -9,7 +9,16 @@ import json
 import hashlib
 import re
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
+
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 
@@ -99,32 +108,48 @@ def _extract_json_array(raw_text: str) -> list[str]:
 
 def generate_suggested_questions(text: str, n: int = 3) -> list[str]:
     fallback = suggest_questions(text, n=n)
-    api_key = settings.OPENAI_API_KEY.strip()
-    if not api_key:
-        return fallback[:n]
 
-    prompt = build_suggested_questions_prompt(text)
-    try:
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            response_format={"type": "json_object"},
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that outputs JSON.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-        )
-        content = response.choices[0].message.content or ""
-        questions = _extract_json_array(content)
-        if questions:
-            return questions[:n]
-    except Exception:
-        return fallback[:n]
+    # 1. Try Google Gemini API if GEMINI_API_KEY is provided
+    gemini_key = settings.GEMINI_API_KEY.strip()
+    if gemini_key and genai is not None:
+        try:
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            prompt = build_suggested_questions_prompt(text)
+            response = model.generate_content(prompt)
+            content = response.text or ""
+            questions = _extract_json_array(content)
+            if questions:
+                return questions[:n]
+        except Exception:
+            pass
 
+    # 2. Try OpenAI API if OPENAI_API_KEY is provided
+    openai_key = settings.OPENAI_API_KEY.strip()
+    if openai_key and OpenAI is not None:
+        try:
+            prompt = build_suggested_questions_prompt(text)
+            client = OpenAI(api_key=openai_key)
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                response_format={"type": "json_object"},
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that outputs JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+            )
+            content = response.choices[0].message.content or ""
+            questions = _extract_json_array(content)
+            if questions:
+                return questions[:n]
+        except Exception:
+            pass
+
+    # 3. Fallback to local extraction
     return fallback[:n]
 
 
