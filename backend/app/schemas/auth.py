@@ -84,3 +84,17 @@ class LoginResponse(BaseModel):
 class UserPermissionsResponse(BaseModel):
     role: str
     permissions: list[str]
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=8)
+    confirm_new_password: str = Field(..., min_length=8)
+
+    model_config = ConfigDict(extra="forbid")

@@ -24,6 +24,15 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
+    PASSWORD_RESET_EXPIRE_MINUTES: int = 15
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = "noreply@slrms.local"
+
     class Config:
         env_file = ".env"
         extra = "ignore"

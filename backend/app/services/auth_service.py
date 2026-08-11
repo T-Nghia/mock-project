@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import HTTPException, status
+from datetime import datetime, timedelta, timezone
+from fastapi import BackgroundTasks, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -10,12 +11,17 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_access_token,
+    generate_password_reset_token,
     hash_password,
+    hash_password_reset_token,
     verify_password,
 )
 from app.models.user import User, UserRole
+from app.repositories.password_reset_repo import PasswordResetRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import (
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
     TeacherCreate,
     TokenResponse,
     UserLogin,
@@ -23,6 +29,7 @@ from app.schemas.auth import (
     UserRoleUpdate,
     UserStatusUpdate,
 )
+from app.utils.email import send_email
 
 
 class AuthService:
@@ -31,6 +38,7 @@ class AuthService:
 
     def __init__(self, db: Session):
         self.repo = UserRepository(db)
+        self.reset_repo = PasswordResetRepository(db)
 
     def register(self, data: UserRegister) -> User:
         if hasattr(data, "confirm_password") and data.password != data.confirm_password:
@@ -138,3 +146,42 @@ class AuthService:
         else:
             for key in redis_client.scan_iter(f"refresh:{user_id}:*"):
                 redis_client.delete(key)
+
+    def forgot_password(self, data: ForgotPasswordRequest, background_tasks: BackgroundTasks) -> None:
+        user = self.repo.get_by_email(data.email)
+        if user and user.is_active:
+            self.reset_repo.invalidate_all_for_user(user.id)
+
+            raw_token = generate_password_reset_token()
+            token_hash = hash_password_reset_token(raw_token)
+            expires_at = datetime.now(timezone.utc) + timedelta(
+                minutes=settings.PASSWORD_RESET_EXPIRE_MINUTES
+            )
+            self.reset_repo.create(user.id, token_hash, expires_at)
+
+            reset_link = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
+            background_tasks.add_task(
+                send_email,
+                to=user.email,
+                subject="Dat lai mat khau - Smart LRMS",
+                body=f"Nhan vao link sau de dat lai mat khau (het han sau {settings.PASSWORD_RESET_EXPIRE_MINUTES} phut):\n{reset_link}",
+            )
+
+    def reset_password(self, data: ResetPasswordRequest) -> None:
+        if data.new_password != data.confirm_new_password:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mat khau xac nhan khong khop")
+
+        token_hash = hash_password_reset_token(data.token)
+        reset_row = self.reset_repo.get_valid_by_hash(token_hash)
+        if reset_row is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Token khong hop le hoac da het han")
+
+        user = self.repo.get_by_id(reset_row.user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Token khong hop le")
+
+        user.hashed_password = hash_password(data.new_password)
+        self.repo.db.commit()
+        self.reset_repo.mark_used(reset_row)
+
+        self.logout(user.id) # Thu hồi toàn bộ refresh token cũ
