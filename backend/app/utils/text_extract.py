@@ -74,7 +74,7 @@ def extract_text(file_path: str, file_type: str) -> str:
         if file_type in ("docx", "doc"):
             doc = DocxDocument(file_path)
             return "\n".join(p.text for p in doc.paragraphs)
-
+        # Fallback: treat as plain text
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
     except Exception:
@@ -98,12 +98,14 @@ def _clean_academic_headers(text: str) -> str:
     """Loại bỏ tiêu ngữ hành chính, từ rác, và các dòng tên tác giả/giảng viên/học vị tổng quát (Việt & Anh)."""
     if not text:
         return ""
+    # 1. Xoá tiêu ngữ hành chính Việt Nam & Tên trường/khoa
     clean = re.sub(
         r"(?:CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM|Độc lập\s*-\s*Tự do\s*-\s*Hạnh phúc|ĐẠI HỌC QUỐC GIA\s*[\w\s]*|TRƯỜNG ĐẠI HỌC\s*[\w\s]*|ĐỀ CƯƠNG CHI TIẾT\s*[\w\s]*|ĐỀ CƯƠNG MÔN HỌC)",
         " ",
         text,
         flags=re.IGNORECASE,
     )
+    # 2. Xoá dòng tên tác giả / giảng viên / học vị (Hỗ trợ quốc tế & Việt Nam)
     clean = re.sub(
         r"\b(?:Tác giả|Giảng viên|Biên soạn|Phản biện|Nguồn|Author|Authors|Lecturer|By|Edited by|Written by|Email|Điện thoại|Phone|Fax)\s*:?\s*.*$",
         " ",
@@ -129,18 +131,41 @@ def make_summary(text: str, max_sentences: int = 3) -> str:
     return " ".join(sentences[:max_sentences])[:1000]
 
 
-def _take_first_words(text: str, max_words: int = 2000) -> str:
+def _sample_representative_text(text: str, target_words: int = 2000) -> str:
+    """
+    Trích mẫu đại diện 3 phân vùng (Head + Middle + Tail) cho tài liệu dài:
+    - File ngắn (<= 2000 từ ~ 1-5 trang A4): Trả về 100% nguyên văn (KHÔNG CẮT GHÉP, KHÔNG LẶP).
+    - File dài (> 2000 từ ~ 6-50+ trang): Trích mẫu 3 vùng đảm bảo chỉ số tuyệt đối không chồng lấp.
+    """
     clean_text = _clean_academic_headers(text)
     words = clean_text.split()
-    if len(words) <= max_words:
+    total_words = len(words)
+
+    # 1. Nếu file ngắn (<= 2000 từ): Trả về 100% nguyên văn, không bị lặp hay cắt chữ
+    if total_words <= target_words:
         return clean_text
-    return " ".join(words[:max_words]).strip()
+
+    # 2. Nếu file dài (> 2000 từ): Trích mẫu 3 phần với chỉ số không bao giờ chồng lấp
+    head_count = 700
+    tail_count = 400
+    mid_count = 700
+
+    head_part = " ".join(words[:head_count])
+
+    # Đảm bảo phần Giữa nằm lọt lòng giữa phần Đầu và phần Cuối
+    mid_start = max(head_count, (total_words - mid_count) // 2)
+    mid_end = min(total_words - tail_count, mid_start + mid_count)
+
+    mid_part = " ".join(words[mid_start:mid_end])
+    tail_part = " ".join(words[-tail_count:])
+
+    return f"{head_part}\n\n[...Nội dung phần giữa tài liệu...]\n\n{mid_part}\n\n[...Nội dung phần cuối tài liệu...]\n\n{tail_part}"
 
 
 def build_suggested_questions_prompt(extracted_text: str) -> str:
-    excerpt = _take_first_words(extracted_text, 2000)
+    excerpt = _sample_representative_text(extracted_text, 2000)
     return f"""
-Bạn là một trợ lý giáo dục cao cấp. Hãy phân tích đoạn văn bản tài liệu dưới đây và tạo ra
+Bạn là một trợ lý giáo dục cao cấp. Hãy phân tích đoạn văn bản đại diện (gồm Phần đầu, Phần giữa và Phần cuối tài liệu) dưới đây và tạo ra
 đúng 3 câu hỏi gợi ý tự nhiên, thông minh bằng tiếng Việt mà người học/sinh viên sẽ muốn hỏi AI.
 
 Nội dung tài liệu:
@@ -173,75 +198,24 @@ def _extract_json_array(raw_text: str) -> list[str]:
     return questions
 
 
-def _extract_clean_terms(text: str) -> list[str]:
-    """Trích xuất các thuật ngữ/tiêu đề viết hoa chuẩn (2-4 từ), loại bỏ hoàn toàn từ rác bằng pattern tổng quát."""
-    clean = _clean_academic_headers(text)
-    clean = re.sub(r"\S+@\S+", "", clean)
-    clean = re.sub(r"https?://\S+", "", clean)
-
-    terms: list[str] = []
-    seen: set[str] = set()
-
-    matches = re.finditer(
-        r"\b([A-ZÀÁẢẠÃĂẮẰẲẶẴÂẤẦẨẬẪĐÈÉẺẸẼÊẾỀỂỆỄÌÍỈỊĨÒÓỎỌÕÔỐỒỔỘỖƠỚỜỞỢỠÙÚỦỤŨƯỨỪỬỰỮỲÝỶỊỸ][a-zàáảạãăắằẳặcẵâấtầnẩậnẫđèéẻẹẽêếềểệễìíỉịĩòóỏọõôốồổộỗơớờởợỡùúủụũưứừửựữỳýỷịỹ0-9]*+(?:\s+[A-ZÀÁẢẠÃĂẮẰẲẶẴÂẤẦẨẬẪĐÈÉẺẸẼÊẾỀỂỆỄÌÍỈỊĨÒÓỎỌÕÔỐỒỔỘỖƠỚỜỞỢỠÙÚỦỤŨƯỨỪỬỰỮỲÝỶỊỸa-zàáảạãăắằẳặcẵâấtầnẩậnẫđèéẻẹẽêếềểệễìíỉịĩòóỏọõôốồổộỗơớờởợỡùúủụũưứừửựữỳýỷịỹ0-9]+){1,3})\b",
-        clean,
-    )
-
-    for match in matches:
-        term = match.group(0).strip().rstrip(",;:-.")
-        words = term.split()
-        first_word = words[0]
-
-        if first_word in STOP_STARTS:
-            continue
-        if len(term) >= 8 and len(term) <= 45 and term not in seen:
-            seen.add(term)
-            terms.append(term)
-
-    return terms
-
-
 def suggest_questions(text: str, n: int = 4) -> list[str]:
     """
-    Hybrid Strategy 3 (Strict Grounding):
-    1. Lọc bỏ tiêu ngữ hành chính và thông tin tác giả/học vị.
-    2. Trích xuất thuật ngữ chuẩn (không dính từ rác hay câu cắt dở).
-    3. Nếu có thuật ngữ chuẩn -> Tạo câu hỏi tự nhiên theo thuật ngữ đó.
-    4. Nếu không tìm được -> Tự động fallback về danh sách câu hỏi định hướng học tập chuẩn 100%.
+    Local Fallback: Trả về danh sách các câu hỏi định hướng học tập chuẩn mực 100%,
+    đảm bảo câu cú tự nhiên, không bị rác hay lỗi bóc tách thuật ngữ.
     """
-    clean_text = _clean_academic_headers(text)
-    terms = _extract_clean_terms(clean_text)
-
-    templates = [
-        'Khái niệm và nguyên lý của "{term}" được giải thích như thế nào?',
-        'Tài liệu phân tích nội dung gì liên quan đến "{term}"?',
-        'Ứng dụng và ý nghĩa của "{term}" được trình bày ra sao?',
-    ]
-
-    questions: list[str] = []
-    for i, term in enumerate(terms[:n]):
-        template = templates[i % len(templates)]
-        questions.append(template.format(term=term))
-
     high_level_fallbacks = [
         "Tóm tắt các nội dung cốt lõi và kiến thức trọng tâm của tài liệu này?",
         "Những khái niệm hoặc định nghĩa quan trọng nhất được đề cập là gì?",
         "Các phương pháp hoặc thuật toán chính trong bài giảng được giải thích ra sao?",
         "Tài liệu này phù hợp để ôn tập phần kiến thức nào?",
     ]
-
-    for q in high_level_fallbacks:
-        if len(questions) >= n:
-            break
-        if q not in questions:
-            questions.append(q)
-
-    return questions[:n]
+    return high_level_fallbacks[:n]
 
 
 def generate_suggested_questions(text: str, n: int = 3) -> list[str]:
     fallback = suggest_questions(text, n=n)
 
+    # 1. Try Google Gemini API if GEMINI_API_KEY is provided
     gemini_key = settings.GEMINI_API_KEY.strip()
     if gemini_key and genai is not None:
         gemini_models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-pro", "gemini-1.5-flash"]
@@ -258,6 +232,7 @@ def generate_suggested_questions(text: str, n: int = 3) -> list[str]:
             except Exception as e:
                 print(f"[Gemini API Error - {m_name}]: {e}")
 
+    # 2. Try OpenAI API if OPENAI_API_KEY is provided
     openai_key = settings.OPENAI_API_KEY.strip()
     if openai_key and OpenAI is not None:
         try:
@@ -279,9 +254,10 @@ def generate_suggested_questions(text: str, n: int = 3) -> list[str]:
             questions = _extract_json_array(content)
             if questions:
                 return questions[:n]
-        except Exception as e:
-            print(f"[OpenAI API Error]: {e}")
+        except Exception:
+            pass
 
+    # 3. Fallback to local extraction
     return fallback[:n]
 
 
