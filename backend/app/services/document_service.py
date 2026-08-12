@@ -169,6 +169,8 @@ class DocumentService:
         try:
             text = extract_text(document.file_path, document.file_type)
             chunks = chunk_text(text)
+            if not chunks:
+                raise ValueError("Khong the trich xuat noi dung tai lieu.")
 
             chunk_rows = [
                 DocumentChunk(
