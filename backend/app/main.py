@@ -7,6 +7,7 @@ from app.api.routers.auth import router as auth_router
 from app.api.routers.documents import router as documents_router
 from app.api.routers.folders import router as folders_router
 from app.api.routers.search import router as search_router
+from app.api.routers.social import router as social_router
 from app.api.routers.dashboard import router as dashboard_router
 
 
@@ -23,6 +24,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(documents_router)
 app.include_router(folders_router)
+app.include_router(social_router)
 app.include_router(search_router)
 app.include_router(dashboard_router)
 

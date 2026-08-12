@@ -131,9 +131,8 @@ erDiagram
     }
 ```
 
-> `BOOKMARKS`, `COMMENTS`, `RATINGS`, `CHAT_SESSIONS`, `CHAT_MESSAGES` đã có
-> bảng trong DB nhưng **chưa có API** phía trên (thuộc phạm vi Sprint 2 — AI
-> Assistant & User Features).
+> `CHAT_SESSIONS`, `CHAT_MESSAGES` đã có
+> bảng trong DB nhưng **chưa có API** phía trên (thuộc phạm vi AI Assistant — Sprint 2).
 
 ## 2. Schema (chi tiết từng bảng)
 
@@ -202,10 +201,18 @@ erDiagram
 | document_id | UUID | PK (composite), FK → `documents.id`, ON DELETE CASCADE |
 | tag_id | UUID | PK (composite), FK → `tags.id`, ON DELETE CASCADE |
 
-### `bookmarks`, `comments`, `ratings` (mẫu User Features — Sprint 2)
+### `bookmarks`, `comments`, `ratings` (User Features)
 Chung mô típ: `id` (PK), `user_id` (FK → `users.id`, CASCADE), `document_id`
 (FK → `documents.id`, CASCADE), `created_at`; `comments` có thêm `content`
 (TEXT), `ratings` có thêm `score` (INTEGER).
+
+> Không có UNIQUE constraint ở tầng DB cho (`user_id`, `document_id`) trên cả
+> `bookmarks` lẫn `ratings` — tính idempotent (bookmark không trùng lặp, rating
+> ghi đè thay vì cộng dồn) hiện được đảm bảo ở tầng Service/Repository
+> (`SocialRepository.add_bookmark()`/`upsert_rating()` kiểm tra tồn tại trước
+> khi insert). Có thể xảy ra race condition lý thuyết nếu 2 request cùng lúc;
+> chấp nhận được ở quy mô mock project, nên cân nhắc thêm unique index ở
+> Sprint 2 nếu cần đảm bảo chặt ở tầng DB.
 
 ### `chat_sessions` / `chat_messages` (AI Assistant — Sprint 2)
 `chat_sessions`: `id`, `user_id` (FK CASCADE), `document_id` (FK SET NULL,

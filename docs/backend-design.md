@@ -111,6 +111,21 @@ Endpoint yêu cầu đăng nhập cần header `Authorization: Bearer <access_to
 |---|---|---|---|
 | GET | `/dashboard` | Admin, Teacher (Student bị 403) | Admin: tổng số tài liệu/user + biểu đồ upload 7 ngày, tài liệu theo thư mục, user theo role. Teacher: chỉ số liệu tài liệu của chính mình |
 
+### User Features — Bookmark, Comment, Rating (`/documents/{id}/...`, `/me/bookmarks`, `/comments/{id}`)
+
+| Method | Path | Quyền | Mô tả |
+|---|---|---|---|
+| POST | `/documents/{document_id}/bookmark` | `social:interact` (mọi role) | Lưu tài liệu (idempotent — gọi lại không lỗi, không tạo trùng) |
+| DELETE | `/documents/{document_id}/bookmark` | `social:interact` (mọi role) | Bỏ lưu tài liệu (idempotent) |
+| GET | `/documents/{document_id}/bookmark` | Đã đăng nhập | Tôi đã bookmark tài liệu này chưa |
+| GET | `/me/bookmarks` | Đã đăng nhập | Danh sách tài liệu tôi đã bookmark, có phân trang |
+| POST | `/documents/{document_id}/comments` | `social:interact` (mọi role) | Bình luận vào tài liệu |
+| GET | `/documents/{document_id}/comments` | Đã đăng nhập | Danh sách bình luận (mới nhất trước, có phân trang) |
+| DELETE | `/comments/{comment_id}` | Chủ bình luận hoặc Admin | Xoá bình luận |
+| PUT | `/documents/{document_id}/rating` | `social:interact` (mọi role) | Đánh giá 1-5 sao (gọi lại sẽ ghi đè điểm cũ của chính mình, không tạo nhiều bản ghi) |
+| DELETE | `/documents/{document_id}/rating` | `social:interact` (mọi role) | Gỡ đánh giá của tôi (idempotent) |
+| GET | `/documents/{document_id}/rating` | Đã đăng nhập | Điểm trung bình + số lượt đánh giá + điểm của riêng tôi (nếu có) |
+
 ## 3. Module Design
 
 Mỗi module nghiệp vụ đi theo đúng 4 tầng (router → service → repository →
@@ -123,6 +138,7 @@ model), file tương ứng:
 | Folder | `api/routers/folders.py` | `services/folder_service.py` | `repositories/folder_repo.py` | `models/folder.py`, `schemas/folder.py` |
 | Search | `api/routers/search.py` | `services/search_service.py` | `repositories/search_repo.py` | `schemas/search.py` |
 | Dashboard | `api/routers/dashboard.py` | `services/dashboard_service.py` | `repositories/dashboard_repo.py` | `schemas/dashboard.py` |
+| User Features | `api/routers/social.py` | `services/social_service.py` | `repositories/social_repo.py` | `models/social.py`, `schemas/social.py` |
 
 Ghi chú thiết kế đáng chú ý theo module:
 
@@ -144,12 +160,10 @@ Ghi chú thiết kế đáng chú ý theo module:
   tài liệu của mọi Teacher.
 - **Dashboard**: dữ liệu build tại thời điểm gọi API (không cache), Admin thấy
   toàn hệ thống, Teacher chỉ thấy số liệu tài liệu do chính mình upload.
-
-### Việc còn thiếu (chuyển sang Sprint 2)
-
-- Models `models/chat.py` (ChatSession/ChatMessage) và `models/social.py`
-  (Bookmark/Comment/Rating) đã có sẵn bảng trong migration nhưng **chưa có
-  router/service/repository** — đúng theo roadmap (AI Assistant + User
-  Features nằm ở Sprint 2).
-- Chưa có test cho module Search và cần rà lại toàn bộ error-handling khi tích
-  hợp thật với Frontend ở Sprint 2.
+- **User Features**: dùng permission `social:interact` (đã được cấp sẵn cho
+  cả 3 role Admin/Teacher/Student trong `permissions.py` từ trước). Bookmark
+  và Rating được thiết kế **idempotent / upsert** ở tầng repository — gọi
+  bookmark nhiều lần không tạo bản ghi trùng, gọi rating nhiều lần chỉ ghi đè
+  điểm cũ của chính người dùng đó (không có cơ chế unique constraint ở DB cho
+  việc này, xem `database-design.md`). Xoá comment chỉ cho phép chủ comment
+  hoặc Admin (kiểm duyệt).
