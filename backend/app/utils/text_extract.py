@@ -6,6 +6,7 @@ build a simple extractive summary, and produce a lightweight local
 import hashlib
 import json
 import re
+import random
 
 try:
     from openai import OpenAI
@@ -204,12 +205,32 @@ def suggest_questions(text: str, n: int = 4) -> list[str]:
     đảm bảo câu cú tự nhiên, không bị rác hay lỗi bóc tách thuật ngữ.
     """
     high_level_fallbacks = [
+        # --- Nhóm tóm tắt & Ý chính ---
         "Tóm tắt các nội dung cốt lõi và kiến thức trọng tâm của tài liệu này?",
+        "Ý nghĩa hoặc thông điệp chính mà tài liệu muốn truyền tải là gì?",
+        "Những kết luận quan trọng nhất được rút ra ở cuối tài liệu là gì?",
+        
+        # --- Nhóm khái niệm & Thuật ngữ ---
         "Những khái niệm hoặc định nghĩa quan trọng nhất được đề cập là gì?",
-        "Các phương pháp hoặc thuật toán chính trong bài giảng được giải thích ra sao?",
-        "Tài liệu này phù hợp để ôn tập phần kiến thức nào?",
+        "Các thuật ngữ chuyên ngành nào xuất hiện thường xuyên và ý nghĩa của chúng?",
+        
+        # --- Nhóm phương pháp & Cấu trúc ---
+        "Các phương pháp, mô hình hoặc thuật toán chính được giải thích ra sao?",
+        "Quy trình hoặc các bước thực hiện trọng tâm được trình bày trong tài liệu là gì?",
+        
+        # --- Nhóm ứng dụng & Ví dụ ---
+        "Kiến thức trong tài liệu này có thể ứng dụng vào thực tế hoặc bài tập như thế nào?",
+        "Có những ví dụ minh họa hoặc tình huống thực tế (case study) nổi bật nào trong bài?",
+        
+        # --- Nhóm phân tích & Đánh giá ---
+        "Tài liệu có chỉ ra những ưu điểm và hạn chế của vấn đề đang bàn luận không?",
+        "Có những luận điểm hoặc bằng chứng nào nổi bật được sử dụng trong tài liệu?",
+        
+        # --- Nhóm định hướng học tập ---
+        "Tài liệu này phù hợp để ôn tập hoặc nghiên cứu sâu về mảng kiến thức nào?",
+        "Phạm vi nghiên cứu hoặc đối tượng người học mà tài liệu hướng tới là ai?",
     ]
-    return high_level_fallbacks[:n]
+    return random.sample(high_level_fallbacks, min(n, len(high_level_fallbacks)))
 
 
 def generate_suggested_questions(text: str, n: int = 3) -> list[str]:
