@@ -19,10 +19,12 @@ class FakeDocumentRepository:
             return self.document
         return None
 
-    def update_status(self, document, status, summary=None):
+    def update_status(self, document, status, summary=None, suggested_questions=None):
         document.processing_status = status
         if summary is not None:
             document.summary = summary
+        if suggested_questions is not None:
+            document.suggested_questions = suggested_questions
         self.statuses.append(status)
         return document
 
