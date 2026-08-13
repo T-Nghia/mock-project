@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = ""
+    GEMINI_TIMEOUT_SECONDS: float = 30.0
 
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
