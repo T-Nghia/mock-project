@@ -14,8 +14,9 @@ from app.utils.text_extract import (
     embed_text,
     extract_text,
     generate_suggested_questions,
-    make_summary,
 )
+from app.services.summary_service import generate_summary
+
 
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt", "pptx", "jpg", "jpeg", "png"}
 
@@ -193,7 +194,7 @@ class DocumentService:
                 self.doc_repo.add_chunks(chunk_rows)
 
             suggested_questions = generate_suggested_questions(text, n=3)
-            summary = make_summary(text)
+            summary = generate_summary(text, title=document.title)
             self.doc_repo.update_status(
                 document,
                 ProcessingStatus.DONE,
