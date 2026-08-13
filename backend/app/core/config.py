@@ -20,7 +20,8 @@ class Settings(BaseSettings):
     # When empty, the AI Assistant falls back to a local keyword-search
     # + extractive-summary implementation so the project runs out of the box.
     OPENAI_API_KEY: str = ""
-    ANTHROPIC_API_KEY: str = "" 
+    ANTHROPIC_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
 
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 

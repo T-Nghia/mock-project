@@ -34,11 +34,17 @@ class DocumentRepository:
         return list(self.db.scalars(stmt).all())
 
     def update_status(
-        self, document: Document, status, summary: str | None = None
+        self,
+        document: Document,
+        status,
+        summary: str | None = None,
+        suggested_questions: list[str] | None = None,
     ) -> Document:
         document.processing_status = status
         if summary is not None:
             document.summary = summary
+        if suggested_questions is not None:
+            document.suggested_questions = suggested_questions
         self.db.commit()
         self.db.refresh(document)
         return document
