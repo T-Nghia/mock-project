@@ -5,6 +5,7 @@ build a simple extractive summary, and produce a lightweight local
 """
 import hashlib
 import json
+import logging
 import re
 import random
 
@@ -19,11 +20,16 @@ except ImportError:
     genai = None
 
 from docx import Document as DocxDocument
+from docx.oxml.table import CT_Tbl
+from docx.oxml.text.paragraph import CT_P
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 from pypdf import PdfReader
 
 from app.core.config import settings
 
 EMBEDDING_DIM = 384
+logger = logging.getLogger(__name__)
 
 STOP_STARTS = {
     "Để",
@@ -66,33 +72,268 @@ STOP_STARTS = {
 }
 
 
+def _extract_pdf(file_path: str) -> str:
+    reader = PdfReader(file_path)
+    pages = []
+    for page in reader.pages:
+        text = (page.extract_text() or "").strip()
+        if text:
+            pages.append(text)
+    return "\n\n".join(pages)
+
+
+def _extract_txt(file_path: str) -> str:
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
+        return file.read().strip()
+
+
+def _iter_docx_blocks(document):
+    for child in document.element.body.iterchildren():
+        if isinstance(child, CT_P):
+            yield Paragraph(child, document)
+        elif isinstance(child, CT_Tbl):
+            yield Table(child, document)
+
+
+def _normalize_docx_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _format_docx_table(table: Table, table_number: int) -> str:
+    if len(table.rows) < 2:
+        return ""
+
+    headers = [
+        _normalize_docx_text(cell.text) or f"Cột {index}"
+        for index, cell in enumerate(table.rows[0].cells, start=1)
+    ]
+    lines = []
+    for row in table.rows[1:]:
+        pairs = []
+        for index, cell in enumerate(row.cells, start=1):
+            value = _normalize_docx_text(cell.text)
+            if not value:
+                continue
+            header = headers[index - 1] if index <= len(headers) else f"Cột {index}"
+            pairs.append(f"{header}: {value}")
+        if pairs:
+            lines.append("; ".join(pairs))
+
+    if not lines:
+        return ""
+    return f"[TABLE {table_number}]\n" + "\n".join(lines)
+
+
+def _extract_docx(file_path: str) -> str:
+    document = DocxDocument(file_path)
+    blocks = []
+    table_number = 0
+
+    for block in _iter_docx_blocks(document):
+        if isinstance(block, Paragraph):
+            text = _normalize_docx_text(block.text)
+            if text:
+                blocks.append(text)
+            continue
+
+        table_number += 1
+        table_text = _format_docx_table(block, table_number)
+        if table_text:
+            blocks.append(table_text)
+
+    return "\n\n".join(blocks)
+
+
 def extract_text(file_path: str, file_type: str) -> str:
-    file_type = file_type.lower()
+    normalized_type = file_type.lower()
+    extractors = {
+        "pdf": _extract_pdf,
+        "docx": _extract_docx,
+        "txt": _extract_txt,
+    }
+    extractor = extractors.get(normalized_type)
+    if extractor is None:
+        logger.warning(
+            "Unsupported extraction format: type=%s path=%s",
+            normalized_type,
+            file_path,
+        )
+        return ""
+
     try:
-        if file_type == "pdf":
-            reader = PdfReader(file_path)
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
-        if file_type in ("docx", "doc"):
-            doc = DocxDocument(file_path)
-            return "\n".join(p.text for p in doc.paragraphs)
-        # Fallback: treat as plain text
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            return f.read()
+        return extractor(file_path)
     except Exception:
+        logger.exception(
+            "Text extraction failed: type=%s path=%s",
+            normalized_type,
+            file_path,
+        )
         return ""
 
 
-def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> list[str]:
-    text = re.sub(r"\s+", " ", text).strip()
-    if not text:
+def _hard_split(text: str, max_chars: int) -> list[str]:
+    return [text[index : index + max_chars] for index in range(0, len(text), max_chars)]
+
+
+def _split_words(text: str, max_chars: int) -> list[str]:
+    units = []
+    current = []
+    current_length = 0
+
+    for word in text.split():
+        if len(word) > max_chars:
+            if current:
+                units.append(" ".join(current))
+                current = []
+                current_length = 0
+            units.extend(_hard_split(word, max_chars))
+            continue
+
+        candidate_length = current_length + (1 if current else 0) + len(word)
+        if current and candidate_length > max_chars:
+            units.append(" ".join(current))
+            current = [word]
+            current_length = len(word)
+        else:
+            current.append(word)
+            current_length = candidate_length
+
+    if current:
+        units.append(" ".join(current))
+    return units
+
+
+_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?。！？])\s+")
+_TABLE_MARKER_RE = re.compile(r"^\[TABLE \d+\]$")
+
+
+def _pack_parts(parts: list[str], max_chars: int, separator: str) -> list[str]:
+    packed = []
+    current = ""
+    for part in parts:
+        if not part:
+            continue
+        candidate = f"{current}{separator}{part}" if current else part
+        if current and len(candidate) > max_chars:
+            packed.append(current)
+            current = part
+        else:
+            current = candidate
+    if current:
+        packed.append(current)
+    return packed
+
+
+def _split_ordinary_block(block: str, max_chars: int) -> list[str]:
+    normalized = re.sub(r"\s+", " ", block).strip()
+    if not normalized:
         return []
+    if len(normalized) <= max_chars:
+        return [normalized]
+
+    sentences = [part.strip() for part in _SENTENCE_BOUNDARY_RE.split(normalized) if part.strip()]
+    bounded = []
+    for sentence in sentences:
+        if len(sentence) <= max_chars:
+            bounded.append(sentence)
+        else:
+            bounded.extend(_split_words(sentence, max_chars))
+    return _pack_parts(bounded, max_chars, " ")
+
+
+def _split_blocks(text: str) -> list[str]:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    return [block.strip() for block in re.split(r"\n\s*\n+", normalized) if block.strip()]
+
+
+def _is_table_block(block: str) -> bool:
+    first_line = block.splitlines()[0].strip() if block.splitlines() else ""
+    return bool(_TABLE_MARKER_RE.fullmatch(first_line))
+
+
+def _split_table_block(block: str, max_chars: int) -> list[str]:
+    lines = [line.strip() for line in block.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return _split_ordinary_block(block, max_chars)
+
+    marker = lines[0]
+    content_budget = max_chars - len(marker) - 1
+    if content_budget <= 0:
+        return _split_ordinary_block(block, max_chars)
+
+    row_fragments = []
+    for row in lines[1:]:
+        if len(row) <= content_budget:
+            row_fragments.append(row)
+        else:
+            row_fragments.extend(_split_ordinary_block(row, content_budget))
+
+    row_groups = _pack_parts(row_fragments, content_budget, "\n")
+    return [f"{marker}\n{group}" for group in row_groups if group]
+
+
+def _build_units(text: str, max_chars: int) -> list[str]:
+    units = []
+    for block in _split_blocks(text):
+        if _is_table_block(block):
+            units.extend(_split_table_block(block, max_chars))
+        else:
+            units.extend(_split_ordinary_block(block, max_chars))
+    return units
+
+
+def _join_units(units: list[str]) -> str:
+    return "\n\n".join(units)
+
+
+def _select_overlap_units(units: list[str], overlap_chars: int) -> list[str]:
+    if overlap_chars == 0:
+        return []
+
+    selected = []
+    for unit in reversed(units):
+        candidate = [unit, *selected]
+        if len(_join_units(candidate)) > overlap_chars:
+            break
+        selected = candidate
+    return selected
+
+
+def _pack_units(units: list[str], max_chars: int, overlap_chars: int) -> list[str]:
     chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunks.append(text[start:end])
-        start = end - overlap
+    current = []
+
+    for unit in units:
+        candidate = _join_units([*current, unit])
+        if not current or len(candidate) <= max_chars:
+            current.append(unit)
+            continue
+
+        chunks.append(_join_units(current))
+        overlap = _select_overlap_units(current, overlap_chars)
+        while overlap and len(_join_units([*overlap, unit])) > max_chars:
+            overlap.pop(0)
+        current = [*overlap, unit]
+
+    if current:
+        chunks.append(_join_units(current))
     return chunks
+
+
+def chunk_text(
+    text: str,
+    max_chars: int = 1200,
+    overlap_chars: int = 200,
+) -> list[str]:
+    if max_chars <= 0:
+        raise ValueError("max_chars must be greater than zero")
+    if overlap_chars < 0 or overlap_chars >= max_chars:
+        raise ValueError("overlap_chars must be between zero and max_chars - 1")
+
+    if not text or not text.strip():
+        return []
+    units = _build_units(text, max_chars)
+    return _pack_units(units, max_chars, overlap_chars)
 
 
 def _clean_academic_headers(text: str) -> str:
