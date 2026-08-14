@@ -34,6 +34,22 @@ class ChatRepository:
         )
         return self.db.scalar(stmt)
 
+    def list_owned_sessions_by_document(
+        self,
+        *,
+        document_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> list[ChatSession]:
+        stmt = (
+            select(ChatSession)
+            .where(
+                ChatSession.document_id == document_id,
+                ChatSession.user_id == user_id,
+            )
+            .order_by(ChatSession.created_at.desc(), ChatSession.id.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
     def list_messages(self, *, session_id: uuid.UUID) -> list[ChatMessage]:
         stmt = (
             select(ChatMessage)

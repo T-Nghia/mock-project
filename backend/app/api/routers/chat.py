@@ -60,6 +60,21 @@ def create_session(
 
 
 @router.get(
+    "/documents/{document_id}/sessions",
+    response_model=list[ChatSessionResponse],
+)
+def list_document_sessions(
+    document_id: uuid.UUID,
+    current_user=Depends(chat_user),
+    service: ChatService = Depends(get_chat_service),
+):
+    return service.list_sessions_for_document(
+        document_id=document_id,
+        current_user=current_user,
+    )
+
+
+@router.get(
     "/sessions/{session_id}",
     response_model=ChatSessionDetailResponse,
 )

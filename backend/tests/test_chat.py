@@ -1,6 +1,7 @@
 import os
 import unittest
 import uuid
+from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -151,6 +152,9 @@ class ChatAPITestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
 
+    def create_session_for(self, user: User) -> dict:
+        return self.create_session(self.headers(user))
+
     def test_create_session_requires_token_and_allows_student_and_teacher(self):
         unauthenticated = self.client.post(
             "/chat/sessions",
@@ -167,6 +171,46 @@ class ChatAPITestCase(unittest.TestCase):
                 )
                 self.assertEqual(response.status_code, 201, response.text)
                 self.assertEqual(response.json()["document_id"], str(self.document.id))
+
+    def test_list_document_sessions_requires_token(self):
+        response = self.client.get(f"/chat/documents/{self.document.id}/sessions")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_list_document_sessions_returns_current_users_sessions_newest_first(self):
+        first = self.create_session_for(self.student)
+        second = self.create_session_for(self.student)
+        self.create_session_for(self.other)
+
+        db = TestingSessionLocal()
+        first_row = db.get(ChatSession, uuid.UUID(first["id"]))
+        second_row = db.get(ChatSession, uuid.UUID(second["id"]))
+        first_row.created_at = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
+        second_row.created_at = datetime(2026, 8, 14, 10, 1, tzinfo=timezone.utc)
+        db.commit()
+        db.close()
+
+        response = self.client.get(
+            f"/chat/documents/{self.document.id}/sessions",
+            headers=self.student_headers,
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        sessions = response.json()
+        self.assertEqual([session["id"] for session in sessions], [second["id"], first["id"]])
+        self.assertTrue(all(session["document_id"] == str(self.document.id) for session in sessions))
+        self.assertTrue(
+            all(set(session) == {"id", "document_id", "title", "created_at"} for session in sessions)
+        )
+
+    def test_list_document_sessions_returns_empty_array_when_user_has_no_sessions(self):
+        response = self.client.get(
+            f"/chat/documents/{self.document.id}/sessions",
+            headers=self.student_headers,
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), [])
 
     def test_session_is_private_for_get_and_message(self):
         session = self.create_session()

@@ -56,6 +56,17 @@ class ChatService:
             document_id=document.id,
         )
 
+    def list_sessions_for_document(
+        self,
+        *,
+        document_id: uuid.UUID,
+        current_user: User,
+    ) -> list[ChatSession]:
+        return self.chat_repo.list_owned_sessions_by_document(
+            document_id=document_id,
+            user_id=current_user.id,
+        )
+
     def get_session(
         self,
         *,

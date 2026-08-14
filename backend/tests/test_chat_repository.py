@@ -1,6 +1,7 @@
 import os
 import unittest
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -81,6 +82,57 @@ class ChatRepositoryTestCase(unittest.TestCase):
 
         self.assertEqual(owned.id, session.id)
         self.assertIsNone(hidden)
+
+    def test_list_owned_sessions_by_document_filters_owner_and_document(self):
+        other_document = Document(
+            title="SQLAlchemy",
+            file_path="/app/uploads/sqlalchemy.txt",
+            file_type="txt",
+            uploaded_by=self.user_a.id,
+            processing_status=ProcessingStatus.DONE,
+        )
+        self.db.add(other_document)
+        self.db.commit()
+
+        expected = self.repo.create_session(
+            user_id=self.user_a.id,
+            document_id=self.document.id,
+        )
+        self.repo.create_session(
+            user_id=self.user_b.id,
+            document_id=self.document.id,
+        )
+        self.repo.create_session(
+            user_id=self.user_a.id,
+            document_id=other_document.id,
+        )
+
+        sessions = self.repo.list_owned_sessions_by_document(
+            user_id=self.user_a.id,
+            document_id=self.document.id,
+        )
+
+        self.assertEqual([session.id for session in sessions], [expected.id])
+
+    def test_list_owned_sessions_by_document_orders_newest_first(self):
+        older = self.repo.create_session(
+            user_id=self.user_a.id,
+            document_id=self.document.id,
+        )
+        newer = self.repo.create_session(
+            user_id=self.user_a.id,
+            document_id=self.document.id,
+        )
+        older.created_at = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
+        newer.created_at = datetime(2026, 8, 14, 10, 1, tzinfo=timezone.utc)
+        self.db.commit()
+
+        sessions = self.repo.list_owned_sessions_by_document(
+            user_id=self.user_a.id,
+            document_id=self.document.id,
+        )
+
+        self.assertEqual([session.id for session in sessions], [newer.id, older.id])
 
     def test_messages_are_ordered_and_citations_are_persisted(self):
         session = self.repo.create_session(
