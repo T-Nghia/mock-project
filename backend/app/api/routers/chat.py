@@ -89,6 +89,21 @@ def get_session(
     )
 
 
+@router.delete(
+    "/sessions/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_session(
+    session_id: uuid.UUID,
+    current_user=Depends(chat_user),
+    service: ChatService = Depends(get_chat_service),
+):
+    service.delete_session(
+        session_id=session_id,
+        current_user=current_user,
+    )
+
+
 @router.post(
     "/sessions/{session_id}/messages",
     response_model=ChatAnswerResponse,

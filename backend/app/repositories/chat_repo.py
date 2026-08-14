@@ -34,6 +34,18 @@ class ChatRepository:
         )
         return self.db.scalar(stmt)
 
+    def delete_owned_session(
+        self,
+        *,
+        session_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> None:
+        session = self.get_owned_session(session_id=session_id, user_id=user_id)
+        if session is None:
+            return
+        self.db.delete(session)
+        self.db.commit()
+
     def list_owned_sessions_by_document(
         self,
         *,

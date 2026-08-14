@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -52,6 +52,13 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+
+@event.listens_for(engine, "connect")
+def enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+    dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
+
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base.metadata.create_all(bind=engine)
 
@@ -211,6 +218,76 @@ class ChatAPITestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json(), [])
+
+    def test_delete_session_requires_token(self):
+        session = self.create_session()
+
+        response = self.client.delete(f"/chat/sessions/{session['id']}")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_owner_can_delete_session_and_messages_are_cascaded(self):
+        session = self.create_session()
+        other_session = self.create_session()
+
+        db = TestingSessionLocal()
+        db.add_all(
+            [
+                ChatMessage(
+                    session_id=uuid.UUID(session["id"]),
+                    role="user",
+                    content="Question",
+                ),
+                ChatMessage(
+                    session_id=uuid.UUID(session["id"]),
+                    role="assistant",
+                    content="Answer",
+                    source_chunks=[],
+                ),
+            ]
+        )
+        db.commit()
+        db.close()
+
+        response = self.client.delete(
+            f"/chat/sessions/{session['id']}",
+            headers=self.student_headers,
+        )
+
+        self.assertEqual(response.status_code, 204, response.text)
+        self.assertEqual(response.content, b"")
+
+        db = TestingSessionLocal()
+        self.assertIsNone(db.get(ChatSession, uuid.UUID(session["id"])))
+        self.assertEqual(
+            db.query(ChatMessage)
+            .filter(ChatMessage.session_id == uuid.UUID(session["id"]))
+            .count(),
+            0,
+        )
+        self.assertIsNotNone(db.get(ChatSession, uuid.UUID(other_session["id"])))
+        db.close()
+
+    def test_other_user_cannot_delete_session(self):
+        session = self.create_session()
+
+        response = self.client.delete(
+            f"/chat/sessions/{session['id']}",
+            headers=self.other_headers,
+        )
+
+        self.assertEqual(response.status_code, 404)
+        db = TestingSessionLocal()
+        self.assertIsNotNone(db.get(ChatSession, uuid.UUID(session["id"])))
+        db.close()
+
+    def test_delete_missing_session_returns_not_found(self):
+        response = self.client.delete(
+            f"/chat/sessions/{uuid.uuid4()}",
+            headers=self.student_headers,
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_session_is_private_for_get_and_message(self):
         session = self.create_session()

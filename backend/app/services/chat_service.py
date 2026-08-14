@@ -85,6 +85,18 @@ class ChatService:
             user_id=current_user.id,
         )
 
+    def delete_session(
+        self,
+        *,
+        session_id: uuid.UUID,
+        current_user: User,
+    ) -> None:
+        self._get_owned_session(session_id, current_user.id)
+        self.chat_repo.delete_owned_session(
+            session_id=session_id,
+            user_id=current_user.id,
+        )
+
     def get_session(
         self,
         *,
