@@ -138,13 +138,19 @@ class ChatServiceTestCase(unittest.TestCase):
         self.assertEqual(session.user_id, self.user.id)
         self.assertEqual(session.document_id, ready.id)
 
-    def test_ask_uses_session_document_and_persists_answer_with_bounded_sources(self):
+    def test_ask_builds_readable_bounded_quote_and_persists_it(self):
         document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
         retrieved = RetrievedChunk(
             chunk_id=uuid.uuid4(),
             document_id=document.id,
             chunk_index=0,
-            content="Bien la vung nho. " + "a" * 250,
+            content=(
+                "[TABLE 4]" + chr(10)
+                + "Mức: P1 - Critical; Thời gian phản hồi: 30 phút" + chr(10)
+                + "Mức: P2 - High; Thời gian phản hồi: 4 giờ" + chr(10)
+                + "Chi tiết bổ sung: "
+                + "a" * 500
+            ),
             score=0.82,
         )
         service, retriever, provider = self.service(
@@ -165,7 +171,12 @@ class ChatServiceTestCase(unittest.TestCase):
         self.assertEqual(response.answer, "Bien dung de luu du lieu.")
         self.assertEqual(len(response.sources), 1)
         self.assertEqual(response.sources[0].chunk_id, retrieved.chunk_id)
-        self.assertLessEqual(len(response.sources[0].quote), 200)
+        self.assertLessEqual(len(response.sources[0].quote), 400)
+        self.assertNotIn("\n", response.sources[0].quote)
+        self.assertNotIn("  ", response.sources[0].quote)
+        self.assertTrue(response.sources[0].quote.endswith("…"))
+        self.assertIn("Mức: P1", response.sources[0].quote)
+        self.assertIn("Mức: P2", response.sources[0].quote)
         messages = self.db.query(ChatMessage).order_by(ChatMessage.created_at).all()
         self.assertEqual([message.role for message in messages], ["user", "assistant"])
         self.assertEqual(messages[1].source_chunks[0]["chunk_id"], str(retrieved.chunk_id))
@@ -206,6 +217,24 @@ class ChatServiceTestCase(unittest.TestCase):
         )
         self.assertEqual(ungrounded.answer, REFUSAL_ANSWER)
         self.assertEqual(ungrounded.sources, [])
+
+    def test_ask_refuses_when_retriever_returns_no_qualifying_chunks(self):
+        document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
+        service, _, provider = self.service(
+            chunks=[],
+            answer=GeneratedAnswer(content="Khong nen duoc goi", grounded=True),
+        )
+        session = service.create_session(document_id=document.id, current_user=self.user)
+
+        response = service.ask(
+            session_id=session.id,
+            content="PDF toi da bao nhieu MB?",
+            current_user=self.user,
+        )
+
+        self.assertEqual(response.answer, REFUSAL_ANSWER)
+        self.assertEqual(response.sources, [])
+        self.assertEqual(provider.calls, [])
 
     def test_provider_failure_returns_503_without_assistant_message(self):
         document = self.create_document(ProcessingStatus.DONE, with_chunk=True)

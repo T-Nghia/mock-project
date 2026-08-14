@@ -1,4 +1,5 @@
 import uuid
+import re
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -19,6 +20,23 @@ from app.services.gemini_provider import GeminiProviderError
 
 
 REFUSAL_ANSWER = "Không tìm thấy thông tin này trong tài liệu đã chọn."
+MAX_CITATION_QUOTE_CHARS = 400
+
+
+def build_source_quote(content: str, max_chars: int = MAX_CITATION_QUOTE_CHARS) -> str:
+    text = re.sub(r"\s+", " ", content).strip()
+    if len(text) <= max_chars:
+        return text
+
+    candidate = text[: max_chars + 1]
+    sentence_end = max(candidate.rfind("."), candidate.rfind("!"), candidate.rfind("?"))
+    if sentence_end >= max_chars // 2:
+        return candidate[: sentence_end + 1].strip()
+
+    word_end = candidate.rfind(" ", 0, max_chars)
+    if word_end > 0:
+        return candidate[:word_end].rstrip() + "…"
+    return candidate[:max_chars].rstrip() + "…"
 
 
 class ChatService:
@@ -128,7 +146,7 @@ class ChatService:
             ChatCitation(
                 chunk_id=chunk.chunk_id,
                 chunk_index=chunk.chunk_index,
-                quote=chunk.content[:200],
+                quote=build_source_quote(chunk.content),
                 score=chunk.score,
             )
             for chunk in chunks
