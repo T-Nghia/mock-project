@@ -13,6 +13,7 @@ const TITLES: { match: (p: string) => boolean; title: string }[] = [
   { match: (p) => p.startsWith("/documents/"), title: "Chi tiết tài liệu" },
   { match: (p) => p.startsWith("/folders"), title: "Thư mục" },
   { match: (p) => p.startsWith("/search"), title: "Tìm kiếm tài liệu" },
+  { match: (p) => p.startsWith("/bookmarks"), title: "Tài liệu đã lưu" },
   { match: (p) => p.startsWith("/admin/users"), title: "Quản lý người dùng" },
 ];
 

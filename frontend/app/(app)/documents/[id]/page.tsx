@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Download, FileText, User as UserIcon, Calendar, HardDrive } from "lucide-react";
+import { ArrowLeft, Download, FileText, User as UserIcon, Calendar, HardDrive, Sparkles } from "lucide-react";
 import { documentsApi, ApiError } from "@/lib/api";
 import type { DocumentMetadata } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/documents/status-badge";
+import { BookmarkButton } from "@/components/documents/bookmark-button";
+import { RatingStars } from "@/components/documents/rating-stars";
+import { CommentsSection } from "@/components/documents/comments-section";
+import { ChatPanel } from "@/components/chat/chat-panel";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { formatBytes, formatDate } from "@/lib/utils";
 import { useToast } from "@/lib/toast-context";
 
@@ -21,6 +26,7 @@ export default function DocumentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     documentsApi
@@ -84,12 +90,15 @@ export default function DocumentDetailPage() {
               <p className="mt-1 text-xs uppercase text-muted-foreground">{doc.file_type}</p>
             </div>
           </div>
-          <Button onClick={handleDownload} loading={downloading} size="sm">
-            <Download className="h-4 w-4" /> Tải xuống
-          </Button>
+          <div className="flex items-center gap-2">
+            <BookmarkButton documentId={doc.id} />
+            <Button onClick={handleDownload} loading={downloading} size="sm">
+              <Download className="h-4 w-4" /> Tải xuống
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <div className="flex flex-wrap gap-4 text-sm">
+          <div className="flex flex-wrap items-center gap-4 text-sm">
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <UserIcon className="h-4 w-4" /> {doc.uploaded_by.full_name}
             </div>
@@ -101,6 +110,8 @@ export default function DocumentDetailPage() {
             </div>
             <StatusBadge status={doc.processing_status} />
           </div>
+
+          <RatingStars documentId={doc.id} />
 
           {doc.tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -122,8 +133,50 @@ export default function DocumentDetailPage() {
               <p className="text-sm text-muted-foreground">Hệ thống đang xử lý, bản tóm tắt sẽ sớm sẵn sàng.</p>
             )}
           </div>
+
+          {doc.processing_status === "done" && (
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-primary">
+                  <Sparkles className="h-4 w-4" /> Trợ lý AI
+                </div>
+                <Button size="sm" onClick={() => setChatOpen(true)}>
+                  Trò chuyện với tài liệu
+                </Button>
+              </div>
+              {doc.suggested_questions.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {doc.suggested_questions.map((q, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setChatOpen(true)}
+                      className="rounded-full border border-primary/30 bg-background px-3 py-1 text-xs text-foreground transition-colors hover:bg-primary/10"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Hỏi trợ lý AI bất cứ điều gì về nội dung tài liệu.</p>
+              )}
+            </div>
+          )}
+
+          <div className="border-t border-border pt-5">
+            <CommentsSection documentId={doc.id} />
+          </div>
         </CardContent>
       </Card>
+
+      <Dialog open={chatOpen} onOpenChange={setChatOpen}>
+        <DialogContent className="max-w-lg" onClose={() => setChatOpen(false)}>
+          <DialogHeader>
+            <DialogTitle>Trò chuyện với tài liệu</DialogTitle>
+            <DialogDescription className="truncate">{doc.title}</DialogDescription>
+          </DialogHeader>
+          {chatOpen && <ChatPanel documentId={doc.id} suggestedQuestions={doc.suggested_questions} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
