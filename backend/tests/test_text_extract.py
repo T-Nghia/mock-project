@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from docx import Document as DocxDocument
 
-from app.utils.text_extract import extract_text
+from app.utils.text_extract import ExtractedBlock, extract_blocks, extract_text
 
 
 class TextExtractTestCase(unittest.TestCase):
@@ -72,6 +72,24 @@ class TextExtractTestCase(unittest.TestCase):
         result = extract_text(str(path), "docx")
 
         self.assertEqual(result, "Gioi thieu\n\nKet luan")
+
+    def test_docx_extracts_heading_levels_and_preserves_order(self):
+        def build(document):
+            document.add_paragraph("5. Versions", style="Heading 1")
+            document.add_paragraph("5.1 Document versions", style="Heading 2")
+            document.add_paragraph("The Pro plan keeps 50 versions.")
+
+        temp_dir, path = self.save_docx(build)
+        self.addCleanup(temp_dir.cleanup)
+
+        self.assertEqual(
+            extract_blocks(str(path), "docx"),
+            [
+                ExtractedBlock("heading", "5. Versions", 1),
+                ExtractedBlock("heading", "5.1 Document versions", 2),
+                ExtractedBlock("paragraph", "The Pro plan keeps 50 versions."),
+            ],
+        )
 
     def test_docx_formats_table_rows_as_header_value_pairs(self):
         def build(document):

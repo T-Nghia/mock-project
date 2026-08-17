@@ -1,6 +1,6 @@
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -33,6 +33,7 @@ OPENAI_TEXT_MODEL = "gpt-4o-mini"
 class GeneratedAnswer:
     content: str
     grounded: bool
+    source_chunk_indexes: list[int] = field(default_factory=list)
 
 
 class GeminiProviderError(Exception):
@@ -115,11 +116,20 @@ class GeminiProvider:
             raise GeminiProviderError("Gemini tra ve du lieu khong dung dinh dang.")
         content = data.get("content")
         grounded = data.get("grounded")
+        source_indexes = data.get("source_chunk_indexes", [])
         if not isinstance(content, str) or not isinstance(grounded, bool):
             raise GeminiProviderError("Gemini tra ve du lieu khong dung dinh dang.")
+        if not isinstance(source_indexes, list) or not all(
+            isinstance(index, int) and not isinstance(index, bool) for index in source_indexes
+        ):
+            raise GeminiProviderError("Gemini tra ve source chunk khong dung dinh dang.")
         if grounded and not content.strip():
             raise GeminiProviderError("Gemini tra ve du lieu khong dung dinh dang.")
-        return GeneratedAnswer(content=content.strip(), grounded=grounded)
+        return GeneratedAnswer(
+            content=content.strip(),
+            grounded=grounded,
+            source_chunk_indexes=source_indexes,
+        )
 
     def close(self) -> None:
         if self._owns_client:
@@ -135,7 +145,7 @@ Nếu context không đủ bằng chứng, đặt grounded=false.
 Nếu context đủ bằng chứng, đặt grounded=true.
 Trả lời bằng ngôn ngữ của câu hỏi.
 Không tạo citation, chunk ID hoặc danh sách nguồn trong content.
-Trả JSON đúng dạng {"content": "Câu trả lời", "grounded": true}."""
+ Trả JSON đúng dạng {"content": "Câu trả lời", "grounded": true, "source_chunk_indexes": [12]}."""
 
     @staticmethod
     def _build_prompt(
@@ -145,7 +155,7 @@ Trả JSON đúng dạng {"content": "Câu trả lời", "grounded": true}."""
         history: list[ChatMessage],
     ) -> str:
         context_text = "\n\n".join(
-            f"[CHUNK {chunk.chunk_index}]\n{chunk.content}" for chunk in context
+            f"[CHUNK_INDEX={chunk.chunk_index}]\n{chunk.content}" for chunk in context
         )
         history_text = "\n".join(
             f"{message.role}: {message.content}" for message in history[-6:]

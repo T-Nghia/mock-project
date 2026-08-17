@@ -35,6 +35,7 @@ class FakeRetriever:
                 chunk_index=0,
                 content="FastAPI dung de xay dung API.",
                 score=0.9,
+                heading_path=[],
             )
         ]
 
@@ -44,6 +45,7 @@ class FakeProvider:
         return GeneratedAnswer(
             content="FastAPI dung de xay dung API.",
             grounded=True,
+            source_chunk_indexes=[0],
         )
 
 

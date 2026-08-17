@@ -45,6 +45,7 @@ class GeminiProviderTestCase(unittest.TestCase):
                                             {
                                                 "content": "Python dung de lap trinh.",
                                                 "grounded": True,
+                                                "source_chunk_indexes": [0],
                                             }
                                         )
                                     }
@@ -70,7 +71,7 @@ class GeminiProviderTestCase(unittest.TestCase):
 
         self.assertEqual(
             answer,
-            GeneratedAnswer(content="Python dung de lap trinh.", grounded=True),
+            GeneratedAnswer(content="Python dung de lap trinh.", grounded=True, source_chunk_indexes=[0]),
         )
         request = captured["request"]
         self.assertIn("/v1beta/models/test-model:generateContent", str(request.url))
@@ -160,7 +161,7 @@ class GeminiProviderTestCase(unittest.TestCase):
                         "parts": [
                             {
                                 "text": json.dumps(
-                                    {"content": "", "grounded": False}
+                    {"content": "", "grounded": False, "source_chunk_indexes": []}
                                 )
                             }
                         ]
@@ -180,7 +181,7 @@ class GeminiProviderTestCase(unittest.TestCase):
             history=[],
         )
 
-        self.assertEqual(answer, GeneratedAnswer(content="", grounded=False))
+        self.assertEqual(answer, GeneratedAnswer(content="", grounded=False, source_chunk_indexes=[]))
 
     def test_close_releases_owned_http_client(self):
         provider = GeminiProvider(api_key="key", model="model")

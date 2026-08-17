@@ -40,6 +40,7 @@ class RetrievalRepository:
                 chunk_index=chunk.chunk_index,
                 content=chunk.content,
                 score=max(-1.0, min(1.0, 1.0 - float(distance_value))),
+                heading_path=(chunk.chunk_metadata or {}).get("heading_path", []),
             )
             for chunk, distance_value in rows
         ]

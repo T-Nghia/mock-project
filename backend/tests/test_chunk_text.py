@@ -1,9 +1,44 @@
 import unittest
 
-from app.utils.text_chunking import chunk_text, chunk_text_by_tokens, count_local_tokens
+from app.utils.text_chunking import (
+    ChunkData,
+    chunk_blocks,
+    chunk_text,
+    chunk_text_by_tokens,
+    count_local_tokens,
+)
+from app.utils.text_extract import ExtractedBlock
 
 
 class ChunkTextTestCase(unittest.TestCase):
+    def test_semantic_chunks_carry_heading_paths(self):
+        blocks = [
+            ExtractedBlock("heading", "5. Versions", 1),
+            ExtractedBlock("heading", "5.1 Document versions", 2),
+            ExtractedBlock("paragraph", "The Pro plan keeps 50 versions."),
+        ]
+
+        result = chunk_blocks(blocks, target_tokens=20, max_tokens=30, overlap_tokens=5)
+
+        self.assertIsInstance(result[0], ChunkData)
+        self.assertEqual(result[0].heading_path, ["5. Versions", "5.1 Document versions"])
+        self.assertIn("The Pro plan", result[0].content)
+    def test_semantic_chunks_keep_heading_context_and_do_not_mix_sections(self):
+        blocks = [
+            ExtractedBlock("heading", "5. Versions", 1),
+            ExtractedBlock("paragraph", "The Pro plan keeps 50 versions."),
+            ExtractedBlock("heading", "6. Sharing", 1),
+            ExtractedBlock("paragraph", "Restricted documents require login."),
+        ]
+
+        result = chunk_blocks(blocks, target_tokens=20, max_tokens=30, overlap_tokens=5)
+
+        self.assertIn("5. Versions", result[0].content)
+        self.assertIn("The Pro plan", result[0].content)
+        self.assertIn("6. Sharing", result[1].content)
+        self.assertIn("Restricted documents", result[1].content)
+        self.assertNotIn("Restricted documents", result[0].content)
+
     def test_local_token_counter_handles_words_and_punctuation(self):
         self.assertEqual(count_local_tokens("Hello, world!"), 4)
         self.assertEqual(count_local_tokens("  \n\t"), 0)

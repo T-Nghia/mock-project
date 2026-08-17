@@ -11,6 +11,7 @@ from app.repositories.document_repo import DocumentRepository
 from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
 from app.utils.text_extract import (
+    extract_blocks,
     extract_text,
 )
 from app.services.summary_service import generate_summary
@@ -19,7 +20,7 @@ from app.services.gemini_embedding_provider import (
     GeminiEmbeddingProvider,
     GeminiEmbeddingProviderError,
 )
-from app.utils.text_chunking import count_local_tokens, chunk_text_by_tokens
+from app.utils.text_chunking import chunk_blocks, count_local_tokens, chunk_text_by_tokens
 
 
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt", "pptx", "jpg", "jpeg", "png"}
@@ -189,11 +190,16 @@ class DocumentService:
 
         try:
             text = extract_text(document.file_path, document.file_type)
-            chunks = chunk_text_by_tokens(
-                text,
-                max_tokens=settings.GEMINI_EMBEDDING_CHUNK_TOKENS,
-                overlap_tokens=settings.GEMINI_EMBEDDING_CHUNK_OVERLAP_TOKENS,
-            )
+            if document.file_type.lower() == "docx":
+                blocks = extract_blocks(document.file_path, "docx")
+                text = "\n\n".join(block.text for block in blocks)
+                chunks = chunk_blocks(blocks)
+            else:
+                chunks = chunk_text_by_tokens(
+                    text,
+                    max_tokens=settings.GEMINI_EMBEDDING_CHUNK_TOKENS,
+                    overlap_tokens=settings.GEMINI_EMBEDDING_CHUNK_OVERLAP_TOKENS,
+                )
             if not chunks:
                 raise ValueError("Khong the trich xuat noi dung tai lieu.")
 
@@ -207,9 +213,13 @@ class DocumentService:
                     )
                 )
                 for batch_index, (batch_start, batch) in enumerate(batches):
+                    batch_texts = [
+                        chunk.content if hasattr(chunk, "content") else chunk
+                        for chunk in batch
+                    ]
                     vectors = _embed_batch_with_retries(
                         provider,
-                        batch,
+                        batch_texts,
                         task_type="RETRIEVAL_DOCUMENT",
                         sleep=self.sleep,
                     )
@@ -218,8 +228,13 @@ class DocumentService:
                             DocumentChunk(
                                 document_id=document.id,
                                 chunk_index=batch_start + index,
-                                content=chunk,
+                                content=chunk.content if hasattr(chunk, "content") else chunk,
                                 embedding=vector,
+                                chunk_metadata=(
+                                    {"heading_path": chunk.heading_path}
+                                    if hasattr(chunk, "heading_path")
+                                    else {}
+                                ),
                             )
                             for index, (chunk, vector) in enumerate(zip(batch, vectors))
                         ]
@@ -246,7 +261,7 @@ class DocumentService:
 
 
 def build_embedding_batches(
-    chunks: list[str],
+    chunks: list,
     max_tokens: int = 27000,
 ) -> list[list[str]]:
     if max_tokens <= 0:
@@ -256,7 +271,8 @@ def build_embedding_batches(
     current: list[str] = []
     current_tokens = 0
     for chunk in chunks:
-        chunk_tokens = count_local_tokens(chunk)
+        chunk_text = chunk.content if hasattr(chunk, "content") else chunk
+        chunk_tokens = count_local_tokens(chunk_text)
         if chunk_tokens > max_tokens:
             raise ValueError("Mot chunk vuot qua gioi han token cua batch.")
         if current and current_tokens + chunk_tokens > max_tokens:

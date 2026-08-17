@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+
+from app.utils.text_extract import ExtractedBlock
+
+
+@dataclass(frozen=True)
+class ChunkData:
+    content: str
+    heading_path: list[str]
 
 
 def _hard_split(text: str, max_chars: int) -> list[str]:
@@ -179,3 +188,122 @@ def chunk_text_by_tokens(
         " ".join(tokens[start : start + max_tokens])
         for start in range(0, len(tokens), step)
     ]
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?。！？])\s+|\n+", text.strip())
+        if sentence.strip()
+    ]
+
+
+def _split_block_units(block: ExtractedBlock, max_tokens: int) -> list[str]:
+    if block.kind == "table":
+        lines = [line.strip() for line in block.text.splitlines() if line.strip()]
+        if not lines:
+            return []
+        marker = lines[0]
+        rows = lines[1:] or lines
+        units = []
+        current = [marker]
+        for row in rows:
+            candidate = "\n".join([*current, row])
+            if len(_local_tokens(candidate)) <= max_tokens:
+                current.append(row)
+            else:
+                if len(current) > 1:
+                    units.append("\n".join(current))
+                    current = [marker, row]
+                else:
+                    units.extend(
+                        f"{marker}\n{part}"
+                        for part in chunk_text_by_tokens(row, max_tokens=max_tokens, overlap_tokens=0)
+                    )
+                    current = [marker]
+        if len(current) > 1:
+            units.append("\n".join(current))
+        return units
+
+    if count_local_tokens(block.text) <= max_tokens:
+        return [block.text.strip()] if block.text.strip() else []
+    units = []
+    for sentence in _split_sentences(block.text):
+        units.extend(
+            [sentence]
+            if count_local_tokens(sentence) <= max_tokens
+            else chunk_text_by_tokens(sentence, max_tokens=max_tokens, overlap_tokens=0)
+        )
+    return units
+
+
+def _trim_heading_context(headings: list[str], max_tokens: int) -> str:
+    text = "\n".join(headings).strip()
+    if count_local_tokens(text) <= max_tokens:
+        return text
+    tokens = _local_tokens(text)
+    return " ".join(tokens[-max_tokens:]) if tokens else ""
+
+
+def _previous_sentence(text: str, max_tokens: int) -> str:
+    sentences = _split_sentences(text)
+    if not sentences:
+        return ""
+    tokens = _local_tokens(sentences[-1])
+    return " ".join(tokens[-max_tokens:])
+
+
+def chunk_blocks(
+    blocks: list[ExtractedBlock],
+    target_tokens: int = 320,
+    max_tokens: int = 450,
+    overlap_tokens: int = 60,
+) -> list[str]:
+    if target_tokens <= 0 or target_tokens > max_tokens:
+        raise ValueError("target_tokens must be between 1 and max_tokens")
+    if overlap_tokens < 0 or overlap_tokens >= max_tokens:
+        raise ValueError("overlap_tokens must be between zero and max_tokens - 1")
+
+    chunks: list[ChunkData] = []
+    headings: list[str] = []
+    current: list[str] = []
+
+    def flush() -> None:
+        if not current:
+            return
+        heading = _trim_heading_context(headings, max_tokens)
+        content = "\n\n".join(current)
+        available = max_tokens - count_local_tokens(heading)
+        body = " ".join(_local_tokens(content)[-available:]) if available <= 0 else content
+        chunks.append(
+            ChunkData(
+                content="\n\n".join(part for part in (heading, body) if part),
+                heading_path=list(headings),
+            )
+        )
+        current.clear()
+
+    for block in blocks:
+        if not block.text.strip():
+            continue
+        if block.kind == "heading":
+            flush()
+            level = block.heading_level or 1
+            headings[:] = [*headings[: level - 1], block.text.strip()]
+            continue
+
+        for unit in _split_block_units(block, max_tokens):
+            heading_tokens = count_local_tokens("\n".join(headings))
+            current_tokens = count_local_tokens("\n\n".join(current))
+            unit_tokens = count_local_tokens(unit)
+            if current and current_tokens + unit_tokens + heading_tokens > target_tokens:
+                previous = _previous_sentence("\n\n".join(current), overlap_tokens)
+                flush()
+                if previous and block.kind != "table":
+                    current.append(previous)
+            current.append(unit)
+            if count_local_tokens("\n\n".join(current)) + heading_tokens >= max_tokens:
+                flush()
+
+    flush()
+    return chunks

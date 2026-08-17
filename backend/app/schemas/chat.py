@@ -32,6 +32,7 @@ class ChatCitation(BaseModel):
     chunk_index: int
     quote: str
     score: float
+    heading_path: list[str] = Field(default_factory=list)
 
 
 class ChatMessageResponse(BaseModel):

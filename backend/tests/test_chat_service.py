@@ -155,7 +155,7 @@ class ChatServiceTestCase(unittest.TestCase):
         )
         service, retriever, provider = self.service(
             chunks=[retrieved],
-            answer=GeneratedAnswer(content="Bien dung de luu du lieu.", grounded=True),
+            answer=GeneratedAnswer(content="Bien dung de luu du lieu.", grounded=True, source_chunk_indexes=[0]),
         )
         session = service.create_session(document_id=document.id, current_user=self.user)
 

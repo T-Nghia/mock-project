@@ -154,14 +154,20 @@ class ChatService:
         if not generated.grounded:
             return self._save_answer(session.id, REFUSAL_ANSWER, [])
 
+        selected_indexes = set(generated.source_chunk_indexes)
+        selected_chunks = [
+            chunk for chunk in chunks
+            if generated.grounded and chunk.chunk_index in selected_indexes
+        ]
         citations = [
             ChatCitation(
                 chunk_id=chunk.chunk_id,
                 chunk_index=chunk.chunk_index,
                 quote=chunk.content,
                 score=chunk.score,
+                heading_path=chunk.heading_path,
             )
-            for chunk in chunks
+            for chunk in selected_chunks
         ]
         return self._save_answer(session.id, generated.content, citations)
 

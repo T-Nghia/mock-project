@@ -3,6 +3,8 @@
 import hashlib
 import logging
 import re
+from dataclasses import dataclass
+from typing import Literal
 
 from docx import Document as DocxDocument
 from docx.oxml.table import CT_Tbl
@@ -14,6 +16,13 @@ from pypdf import PdfReader
 
 EMBEDDING_DIM = 384
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ExtractedBlock:
+    kind: Literal["heading", "paragraph", "table"]
+    text: str
+    heading_level: int | None = None
 
 
 def _extract_pdf(file_path: str) -> str:
@@ -88,11 +97,64 @@ def _extract_docx(file_path: str) -> str:
     return "\n\n".join(blocks)
 
 
+def _heading_level(paragraph: Paragraph) -> int | None:
+    style_name = getattr(paragraph.style, "name", "") or ""
+    match = re.fullmatch(r"Heading\s+(\d+)", style_name.strip(), flags=re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
+def _extract_docx_blocks(file_path: str) -> list[ExtractedBlock]:
+    document = DocxDocument(file_path)
+    blocks: list[ExtractedBlock] = []
+    table_number = 0
+
+    for block in _iter_docx_blocks(document):
+        if isinstance(block, Paragraph):
+            text = _normalize_docx_text(block.text)
+            if not text:
+                continue
+            level = _heading_level(block)
+            blocks.append(
+                ExtractedBlock(
+                    kind="heading" if level is not None else "paragraph",
+                    text=text,
+                    heading_level=level,
+                )
+            )
+            continue
+
+        table_number += 1
+        table_text = _format_docx_table(block, table_number)
+        if table_text:
+            blocks.append(ExtractedBlock(kind="table", text=table_text))
+
+    return blocks
+
+
+def extract_blocks(file_path: str, file_type: str) -> list[ExtractedBlock]:
+    if file_type.lower() != "docx":
+        return []
+    try:
+        return [
+            ExtractedBlock(
+                kind=block.kind,
+                text=block.text.replace("\x00", ""),
+                heading_level=block.heading_level,
+            )
+            for block in _extract_docx_blocks(file_path)
+        ]
+    except Exception:
+        logger.exception("Structured DOCX extraction failed: path=%s", file_path)
+        return []
+
+
 def extract_text(file_path: str, file_type: str) -> str:
     normalized_type = file_type.lower()
+    if normalized_type == "docx":
+        return "\n\n".join(block.text for block in extract_blocks(file_path, normalized_type))
+
     extractors = {
         "pdf": _extract_pdf,
-        "docx": _extract_docx,
         "txt": _extract_txt,
     }
     extractor = extractors.get(normalized_type)

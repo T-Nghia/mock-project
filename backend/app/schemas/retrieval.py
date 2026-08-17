@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 from uuid import UUID
 
@@ -10,6 +10,7 @@ class RetrievedChunk:
     chunk_index: int
     content: str
     score: float
+    heading_path: list[str] = field(default_factory=list)
 
 
 class Retriever(Protocol):
