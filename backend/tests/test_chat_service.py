@@ -138,7 +138,7 @@ class ChatServiceTestCase(unittest.TestCase):
         self.assertEqual(session.user_id, self.user.id)
         self.assertEqual(session.document_id, ready.id)
 
-    def test_ask_builds_readable_bounded_quote_and_persists_it(self):
+    def test_ask_returns_the_full_retrieved_chunk_as_quote(self):
         document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
         retrieved = RetrievedChunk(
             chunk_id=uuid.uuid4(),
@@ -171,10 +171,9 @@ class ChatServiceTestCase(unittest.TestCase):
         self.assertEqual(response.answer, "Bien dung de luu du lieu.")
         self.assertEqual(len(response.sources), 1)
         self.assertEqual(response.sources[0].chunk_id, retrieved.chunk_id)
-        self.assertLessEqual(len(response.sources[0].quote), 400)
-        self.assertNotIn("\n", response.sources[0].quote)
-        self.assertNotIn("  ", response.sources[0].quote)
-        self.assertTrue(response.sources[0].quote.endswith("…"))
+        self.assertEqual(response.sources[0].quote, retrieved.content)
+        self.assertGreater(len(response.sources[0].quote), 400)
+        self.assertIn("\n", response.sources[0].quote)
         self.assertIn("Mức: P1", response.sources[0].quote)
         self.assertIn("Mức: P2", response.sources[0].quote)
         messages = self.db.query(ChatMessage).order_by(ChatMessage.created_at).all()

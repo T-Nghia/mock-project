@@ -336,6 +336,38 @@ def chunk_text(
     return _pack_units(units, max_chars, overlap_chars)
 
 
+_LOCAL_TOKEN_RE = re.compile(r"\w+|[^\w\s]", flags=re.UNICODE)
+
+
+def _local_tokens(text: str) -> list[str]:
+    return _LOCAL_TOKEN_RE.findall(text)
+
+
+def count_local_tokens(text: str) -> int:
+    return len(_local_tokens(text))
+
+
+def chunk_text_by_tokens(
+    text: str,
+    max_tokens: int = 500,
+    overlap_tokens: int = 80,
+) -> list[str]:
+    if max_tokens <= 0:
+        raise ValueError("max_tokens must be greater than zero")
+    if overlap_tokens < 0 or overlap_tokens >= max_tokens:
+        raise ValueError("overlap_tokens must be between zero and max_tokens - 1")
+
+    tokens = _local_tokens(text)
+    if not tokens:
+        return []
+
+    step = max_tokens - overlap_tokens
+    return [
+        " ".join(tokens[start : start + max_tokens])
+        for start in range(0, len(tokens), step)
+    ]
+
+
 def _clean_academic_headers(text: str) -> str:
     """Loại bỏ tiêu ngữ hành chính, từ rác, và các dòng tên tác giả/giảng viên/học vị tổng quát (Việt & Anh)."""
     if not text:

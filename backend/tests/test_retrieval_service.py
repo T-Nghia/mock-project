@@ -28,11 +28,27 @@ class FakeRetrievalRepository:
         return self.result
 
 
+class FakeEmbeddingProvider:
+    def __init__(self):
+        self.texts = None
+        self.task_type = None
+
+    def embed_batch(self, texts, *, task_type):
+        self.texts = texts
+        self.task_type = task_type
+        return [[0.25] * EMBEDDING_DIM]
+
+
 class RetrievalServiceTestCase(unittest.TestCase):
     def test_retrieve_embeds_trimmed_question_and_passes_arguments(self):
         document_id = uuid.uuid4()
         fake_repo = FakeRetrievalRepository()
-        service = RetrievalService(db=None, repository=fake_repo)
+        fake_embedding_provider = FakeEmbeddingProvider()
+        service = RetrievalService(
+            db=None,
+            repository=fake_repo,
+            embedding_provider=fake_embedding_provider,
+        )
 
         result = service.retrieve(
             document_id=document_id,
@@ -43,8 +59,10 @@ class RetrievalServiceTestCase(unittest.TestCase):
         self.assertEqual(result, fake_repo.result)
         self.assertEqual(fake_repo.document_id, document_id)
         self.assertEqual(fake_repo.top_k, 3)
+        self.assertEqual(fake_embedding_provider.texts, ["FastAPI dung de lam gi?"])
+        self.assertEqual(fake_embedding_provider.task_type, "RETRIEVAL_QUERY")
+        self.assertEqual(fake_repo.query_embedding, [0.25] * EMBEDDING_DIM)
         self.assertEqual(len(fake_repo.query_embedding), EMBEDDING_DIM)
-        self.assertGreater(sum(abs(value) for value in fake_repo.query_embedding), 0)
 
     def test_empty_question_is_rejected(self):
         service = RetrievalService(db=None, repository=FakeRetrievalRepository())

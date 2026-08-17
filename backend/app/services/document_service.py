@@ -1,5 +1,6 @@
 import mimetypes
 from pathlib import Path
+import time
 import uuid
 
 from fastapi import HTTPException, UploadFile, status
@@ -10,12 +11,15 @@ from app.repositories.document_repo import DocumentRepository
 from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
 from app.utils.text_extract import (
-    chunk_text,
-    embed_text,
     extract_text,
     generate_suggested_questions,
 )
 from app.services.summary_service import generate_summary
+from app.services.gemini_embedding_provider import (
+    GeminiEmbeddingProvider,
+    GeminiEmbeddingProviderError,
+)
+from app.utils.text_extract import count_local_tokens, chunk_text_by_tokens
 
 
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt", "pptx", "jpg", "jpeg", "png"}
@@ -31,10 +35,19 @@ EXTENSION_MIME_OVERRIDES = {
 
 class DocumentService:
 
-    def __init__(self, doc_repo: DocumentRepository, tag_repo: TagRepository, user_repo: UserRepository | None = None):
+    def __init__(
+        self,
+        doc_repo: DocumentRepository,
+        tag_repo: TagRepository,
+        user_repo: UserRepository | None = None,
+        embedding_provider: GeminiEmbeddingProvider | None = None,
+        sleep=time.sleep,
+    ):
         self.doc_repo = doc_repo
         self.tag_repo = tag_repo
         self.user_repo = user_repo
+        self.embedding_provider = embedding_provider
+        self.sleep = sleep
 
 
     def _get_document_or_404(self, document_id: uuid.UUID) -> Document:
@@ -176,22 +189,46 @@ class DocumentService:
 
         try:
             text = extract_text(document.file_path, document.file_type)
-            chunks = chunk_text(text)
+            chunks = chunk_text_by_tokens(
+                text,
+                max_tokens=settings.GEMINI_EMBEDDING_CHUNK_TOKENS,
+                overlap_tokens=settings.GEMINI_EMBEDDING_CHUNK_OVERLAP_TOKENS,
+            )
             if not chunks:
                 raise ValueError("Khong the trich xuat noi dung tai lieu.")
 
-            chunk_rows = [
-                DocumentChunk(
-                    document_id=document.id,
-                    chunk_index=i,
-                    content=chunk,
-                    embedding=embed_text(chunk),
+            provider = self.embedding_provider or GeminiEmbeddingProvider()
+            owns_provider = self.embedding_provider is None
+            try:
+                batches = list(
+                    _iter_embedding_batches(
+                        chunks,
+                        max_tokens=settings.GEMINI_EMBEDDING_BATCH_TOKENS,
+                    )
                 )
-                for i, chunk in enumerate(chunks)
-            ]
-
-            if chunk_rows:
-                self.doc_repo.add_chunks(chunk_rows)
+                for batch_index, (batch_start, batch) in enumerate(batches):
+                    vectors = _embed_batch_with_retries(
+                        provider,
+                        batch,
+                        task_type="RETRIEVAL_DOCUMENT",
+                        sleep=self.sleep,
+                    )
+                    self.doc_repo.add_chunks(
+                        [
+                            DocumentChunk(
+                                document_id=document.id,
+                                chunk_index=batch_start + index,
+                                content=chunk,
+                                embedding=vector,
+                            )
+                            for index, (chunk, vector) in enumerate(zip(batch, vectors))
+                        ]
+                    )
+                    if batch_index < len(batches) - 1:
+                        self.sleep(60)
+            finally:
+                if owns_provider:
+                    provider.close()
 
             suggested_questions = generate_suggested_questions(text, n=3)
             summary = generate_summary(text, title=document.title)
@@ -206,3 +243,52 @@ class DocumentService:
             # Cập nhật trạng thái FAILED nếu có lỗi xử lý
             self.doc_repo.update_status(document, ProcessingStatus.FAILED)
             raise e
+
+
+def build_embedding_batches(
+    chunks: list[str],
+    max_tokens: int = 27000,
+) -> list[list[str]]:
+    if max_tokens <= 0:
+        raise ValueError("max_tokens must be greater than zero")
+
+    batches: list[list[str]] = []
+    current: list[str] = []
+    current_tokens = 0
+    for chunk in chunks:
+        chunk_tokens = count_local_tokens(chunk)
+        if chunk_tokens > max_tokens:
+            raise ValueError("Mot chunk vuot qua gioi han token cua batch.")
+        if current and current_tokens + chunk_tokens > max_tokens:
+            batches.append(current)
+            current = []
+            current_tokens = 0
+        current.append(chunk)
+        current_tokens += chunk_tokens
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _iter_embedding_batches(chunks: list[str], *, max_tokens: int):
+    offset = 0
+    for batch in build_embedding_batches(chunks, max_tokens=max_tokens):
+        yield offset, batch
+        offset += len(batch)
+
+
+def _embed_batch_with_retries(
+    provider: GeminiEmbeddingProvider,
+    batch: list[str],
+    *,
+    task_type: str,
+    sleep,
+) -> list[list[float]]:
+    for attempt in range(3):
+        try:
+            return provider.embed_batch(batch, task_type=task_type)
+        except GeminiEmbeddingProviderError as exc:
+            if not exc.retryable or attempt == 2:
+                raise
+            sleep(2 ** (attempt + 1))
+    raise AssertionError("unreachable")

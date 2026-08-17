@@ -158,7 +158,7 @@ class ChatService:
             ChatCitation(
                 chunk_id=chunk.chunk_id,
                 chunk_index=chunk.chunk_index,
-                quote=build_source_quote(chunk.content),
+                quote=chunk.content,
                 score=chunk.score,
             )
             for chunk in chunks

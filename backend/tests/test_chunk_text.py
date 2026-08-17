@@ -1,9 +1,35 @@
 import unittest
 
-from app.utils.text_extract import chunk_text
+from app.utils.text_extract import chunk_text, chunk_text_by_tokens, count_local_tokens
 
 
 class ChunkTextTestCase(unittest.TestCase):
+    def test_local_token_counter_handles_words_and_punctuation(self):
+        self.assertEqual(count_local_tokens("Hello, world!"), 4)
+        self.assertEqual(count_local_tokens("  \n\t"), 0)
+
+    def test_token_chunks_pack_words_with_overlap(self):
+        result = chunk_text_by_tokens(
+            "one two three four five six seven eight nine",
+            max_tokens=4,
+            overlap_tokens=1,
+        )
+        self.assertEqual(
+            result,
+            ["one two three four", "four five six seven", "seven eight nine"],
+        )
+
+    def test_token_chunk_validation_and_empty_input(self):
+        self.assertEqual(chunk_text_by_tokens("  \n\t"), [])
+        for max_tokens, overlap_tokens in ((0, 0), (-1, 0), (4, -1), (4, 4)):
+            with self.subTest(max_tokens=max_tokens, overlap_tokens=overlap_tokens):
+                with self.assertRaises(ValueError):
+                    chunk_text_by_tokens(
+                        "some text",
+                        max_tokens=max_tokens,
+                        overlap_tokens=overlap_tokens,
+                    )
+
     def test_rejects_invalid_size_and_overlap(self):
         cases = (
             {"max_chars": 0, "overlap_chars": 0},

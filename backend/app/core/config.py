@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = ""
     GEMINI_TIMEOUT_SECONDS: float = 30.0
+    GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
+    GEMINI_EMBEDDING_DIM: int = 384
+    GEMINI_EMBEDDING_BATCH_TOKENS: int = 27000
+    GEMINI_EMBEDDING_CHUNK_TOKENS: int = 500
+    GEMINI_EMBEDDING_CHUNK_OVERLAP_TOKENS: int = 80
 
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 

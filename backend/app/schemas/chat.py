@@ -30,7 +30,7 @@ class ChatQuestionRequest(BaseModel):
 class ChatCitation(BaseModel):
     chunk_id: UUID
     chunk_index: int
-    quote: str = Field(max_length=400)
+    quote: str
     score: float
 
 
