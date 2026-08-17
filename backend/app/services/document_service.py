@@ -12,14 +12,14 @@ from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
 from app.utils.text_extract import (
     extract_text,
-    generate_suggested_questions,
 )
 from app.services.summary_service import generate_summary
+from app.services.suggested_question_service import generate_suggested_questions
 from app.services.gemini_embedding_provider import (
     GeminiEmbeddingProvider,
     GeminiEmbeddingProviderError,
 )
-from app.utils.text_extract import count_local_tokens, chunk_text_by_tokens
+from app.utils.text_chunking import count_local_tokens, chunk_text_by_tokens
 
 
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt", "pptx", "jpg", "jpeg", "png"}

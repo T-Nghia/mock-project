@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import dataclass
 
 import httpx
@@ -6,6 +7,26 @@ import httpx
 from app.core.config import settings
 from app.models.chat import ChatMessage
 from app.schemas.retrieval import RetrievedChunk
+
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - dependency is optional at runtime
+    OpenAI = None
+
+try:
+    import google.generativeai as genai
+except ImportError:  # pragma: no cover - dependency is optional at runtime
+    genai = None
+
+
+logger = logging.getLogger(__name__)
+
+# Shared free-form text-generation models. Callers that need grounded,
+# structured chat answers should use GeminiProvider.answer() below instead;
+# these are for simple "prompt in, text out" use cases such as document
+# summaries and suggested questions.
+GEMINI_TEXT_MODELS = ("gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-flash")
+OPENAI_TEXT_MODEL = "gpt-4o-mini"
 
 
 @dataclass(frozen=True)
@@ -140,3 +161,98 @@ Trả JSON đúng dạng {"content": "Câu trả lời", "grounded": true}."""
 QUESTION:
 {question}
 """
+
+
+# ---------------------------------------------------------------------------
+# Shared "prompt in, text out" providers.
+#
+# Unlike GeminiProvider.answer() above (which is specific to grounded RAG
+# chat), the functions below are used by any feature that just needs to send
+# a prompt to an LLM and get raw text back - e.g. SummaryService and
+# SuggestedQuestionService. Provider selection/fallback order, retries across
+# Gemini model names, and swallowing provider/network errors all live here so
+# callers don't duplicate this logic.
+# ---------------------------------------------------------------------------
+
+
+def generate_with_gemini(
+    prompt: str,
+    *,
+    system_instruction: str | None = None,
+    temperature: float = 0.2,
+) -> str | None:
+    """Best-effort text generation via Gemini. Returns None on any failure."""
+    api_key = settings.GEMINI_API_KEY.strip()
+    if not api_key or genai is None:
+        return None
+
+    for model_name in GEMINI_TEXT_MODELS:
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(model_name, system_instruction=system_instruction)
+            response = model.generate_content(
+                prompt,
+                generation_config={"temperature": temperature},
+            )
+            text = getattr(response, "text", None)
+            if text:
+                return text
+        except Exception as exc:  # provider/network failure must not fail the caller
+            logger.warning("Gemini model %s failed: %s", model_name, exc)
+    return None
+
+
+def generate_with_openai(
+    prompt: str,
+    *,
+    system_instruction: str | None = None,
+    temperature: float = 0.2,
+    response_json: bool = False,
+) -> str | None:
+    """Best-effort text generation via OpenAI. Returns None on any failure."""
+    api_key = settings.OPENAI_API_KEY.strip()
+    if not api_key or OpenAI is None:
+        return None
+
+    messages = []
+    if system_instruction:
+        messages.append({"role": "system", "content": system_instruction})
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        client = OpenAI(api_key=api_key)
+        kwargs = {"response_format": {"type": "json_object"}} if response_json else {}
+        response = client.chat.completions.create(
+            model=OPENAI_TEXT_MODEL,
+            messages=messages,
+            temperature=temperature,
+            **kwargs,
+        )
+        return response.choices[0].message.content if response.choices else None
+    except Exception as exc:  # provider/network failure must not fail the caller
+        logger.warning("OpenAI failed: %s", exc)
+        return None
+
+
+def generate_text(
+    prompt: str,
+    *,
+    system_instruction: str | None = None,
+    temperature: float = 0.2,
+    response_json: bool = False,
+) -> str | None:
+    """Try Gemini then OpenAI, returning the first non-empty raw response.
+
+    Returns None if no provider is configured or every provider fails - the
+    caller is responsible for a local fallback in that case.
+    """
+    text = generate_with_gemini(prompt, system_instruction=system_instruction, temperature=temperature)
+    if text:
+        return text
+
+    return generate_with_openai(
+        prompt,
+        system_instruction=system_instruction,
+        temperature=temperature,
+        response_json=response_json,
+    )

@@ -24,12 +24,8 @@ class SearchRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> SearchPaginatedResponse:
-        stmt = (
-            select(
-                Document,
-                Folder.name.label("folder_name"),
-                Folder.subject.label("folder_subject"),
-            )
+        base_stmt = (
+            select(Document.id)
             .outerjoin(Folder, Document.folder_id == Folder.id)
             .outerjoin(DocumentTag, Document.id == DocumentTag.document_id)
             .outerjoin(Tag, DocumentTag.tag_id == Tag.id)
@@ -70,31 +66,55 @@ class SearchRepository:
                 filters.append(or_(*tag_conditions))
 
         if filters:
-            stmt = stmt.where(*filters)
+            base_stmt = base_stmt.where(*filters)
 
-        stmt = stmt.distinct()
-
-        subq = stmt.subquery()
-        count_stmt = select(func.count()).select_from(subq)
+        filtered_documents = base_stmt.subquery()
+        count_stmt = select(func.count(func.distinct(filtered_documents.c.id)))
         total_count = self.db.scalar(count_stmt) or 0
 
         offset = (page - 1) * page_size
-        stmt = stmt.order_by(Document.created_at.desc()).offset(offset).limit(page_size)
+        id_stmt = (
+            base_stmt.group_by(Document.id, Document.created_at)
+            .order_by(Document.created_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
 
-        results = self.db.execute(stmt).all()
+        doc_ids = self.db.scalars(id_stmt).all()
 
-        doc_ids = [row.Document.id for row in results]
-        tags_by_doc: dict[uuid.UUID, list[str]] = {doc_id: [] for doc_id in doc_ids}
-
-        if doc_ids:
-            tag_stmt = (
-                select(DocumentTag.document_id, Tag.name)
-                .join(Tag, DocumentTag.tag_id == Tag.id)
-                .where(DocumentTag.document_id.in_(doc_ids))
+        if not doc_ids:
+            return SearchPaginatedResponse(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                total_pages=0,
             )
-            tag_rows = self.db.execute(tag_stmt).all()
-            for doc_id, tag_name in tag_rows:
-                tags_by_doc[doc_id].append(tag_name)
+
+        fetch_stmt = (
+            select(
+                Document,
+                Folder.name.label("folder_name"),
+                Folder.subject.label("folder_subject"),
+            )
+            .outerjoin(Folder, Document.folder_id == Folder.id)
+            .where(Document.id.in_(doc_ids))
+            .order_by(Document.created_at.desc())
+        )
+
+        results = self.db.execute(fetch_stmt).all()
+
+        tags_by_doc: dict[uuid.UUID, list[str]] = {
+            doc_id: [] for doc_id in doc_ids
+        }
+        tag_stmt = (
+            select(DocumentTag.document_id, Tag.name)
+            .join(Tag, DocumentTag.tag_id == Tag.id)
+            .where(DocumentTag.document_id.in_(doc_ids))
+        )
+        tag_rows = self.db.execute(tag_stmt).all()
+        for d_id, tag_name in tag_rows:
+            tags_by_doc[d_id].append(tag_name)
 
         items = []
         for row in results:
@@ -116,7 +136,9 @@ class SearchRepository:
             )
             items.append(item)
 
-        total_pages = math.ceil(total_count / page_size) if total_count > 0 else 0
+        total_pages = (
+            math.ceil(total_count / page_size) if total_count > 0 else 0
+        )
 
         return SearchPaginatedResponse(
             items=items,

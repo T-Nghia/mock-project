@@ -9,6 +9,7 @@ import {
   UploadCloud,
   Users,
   GraduationCap,
+  Bookmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@/lib/types";
@@ -25,6 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/documents/upload", label: "Tải tài liệu lên", icon: UploadCloud, roles: ["teacher", "admin"] },
   { href: "/folders", label: "Thư mục", icon: FolderTree, roles: ["teacher", "admin"] },
   { href: "/search", label: "Tìm kiếm", icon: Search },
+  { href: "/bookmarks", label: "Đã lưu", icon: Bookmark },
   { href: "/admin/users", label: "Người dùng", icon: Users, roles: ["admin"] },
 ];
 

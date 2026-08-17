@@ -1,6 +1,6 @@
 import unittest
 
-from app.utils.text_extract import chunk_text, chunk_text_by_tokens, count_local_tokens
+from app.utils.text_chunking import chunk_text, chunk_text_by_tokens, count_local_tokens
 
 
 class ChunkTextTestCase(unittest.TestCase):
