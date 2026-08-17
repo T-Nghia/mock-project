@@ -12,6 +12,8 @@ class SearchService:
 
     def search(
         self,
+        *,
+        user_id: uuid.UUID,
         keyword: str | None = None,
         title: str | None = None,
         tags: list[str] | None = None,
@@ -22,6 +24,7 @@ class SearchService:
     ) -> SearchPaginatedResponse:
 
         return self.repository.search_documents(
+            user_id=user_id,
             keyword=keyword,
             title=title,
             tags=tags,

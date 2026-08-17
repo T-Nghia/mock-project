@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -8,9 +8,11 @@ from app.core.database import get_db
 from app.core.permissions import Permission
 from app.core.security import get_current_user, require_permission, require_role
 from app.schemas.auth import (
+    ForgotPasswordRequest,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TeacherCreate,
     TokenResponse,
     UserPermissionsResponse,
@@ -47,6 +49,22 @@ def login_swagger(
 @router.post("/refresh", response_model=TokenResponse)
 def refresh(data: RefreshRequest, db: Session = Depends(get_db)):
     return AuthService(db).refresh(data.refresh_token)
+
+
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+def forgot_password(
+    data: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    AuthService(db).forgot_password(data, background_tasks)
+    return {"Message": "Neu email ton tai trong he thong, huong dan dat lai mat khau da duoc gui."}
+
+
+@router.post("/reset-password")
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    AuthService(db).reset_password(data)
+    return {"Message": "Dat lai mat khau thanh cong."}
 
 
 @router.get("/me", response_model=UserResponse)

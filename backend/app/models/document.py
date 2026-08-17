@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Enum
+from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Enum, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
 
@@ -30,6 +30,7 @@ class Document(Base):
     )
     uploaded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggested_questions: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     processing_status: Mapped[ProcessingStatus] = mapped_column(
         Enum(ProcessingStatus), default=ProcessingStatus.PENDING
     )

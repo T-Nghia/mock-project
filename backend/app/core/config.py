@@ -21,8 +21,20 @@ class Settings(BaseSettings):
     # + extractive-summary implementation so the project runs out of the box.
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_TIMEOUT_SECONDS: float = 30.0
 
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+
+    PASSWORD_RESET_EXPIRE_MINUTES: int = 15
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = "noreply@slrms.local"
 
     class Config:
         env_file = ".env"

@@ -16,7 +16,7 @@ router = APIRouter(prefix="/search", tags=["Search"])
     "",
     response_model=SearchPaginatedResponse,
     status_code=status.HTTP_200_OK,
-    summary="Search documents across keyword, title, tags, subject, and folder_id",
+    summary="Search documents across keyword, title, tags, subject, folder_id, and semantic vector content",
 )
 def search_documents(
     current_user: Annotated[User, Depends(get_current_user)],
@@ -24,7 +24,7 @@ def search_documents(
     keyword: Annotated[
         str | None,
         Query(
-            description="Unified search keyword (searches across title, tag name, and subject)",
+            description="Unified search keyword (searches across title, tag name, subject, and semantic PDF content)",
         ),
     ] = None,
     title: Annotated[
@@ -69,6 +69,7 @@ def search_documents(
 ) -> SearchPaginatedResponse:
     service = SearchService(db)
     return service.search(
+        user_id=current_user.id,
         keyword=keyword,
         title=title,
         tags=tags,

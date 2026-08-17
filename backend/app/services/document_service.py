@@ -9,7 +9,14 @@ from app.models.document import Document, DocumentChunk, ProcessingStatus
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
-from app.utils.text_extract import chunk_text, embed_text, extract_text, make_summary
+from app.utils.text_extract import (
+    chunk_text,
+    embed_text,
+    extract_text,
+    generate_suggested_questions,
+)
+from app.services.summary_service import generate_summary
+
 
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt", "pptx", "jpg", "jpeg", "png"}
 
@@ -68,6 +75,7 @@ class DocumentService:
                 "full_name": uploader.full_name if uploader else "Không xác định",
             },
             "summary": document.summary,
+            "suggested_questions": document.suggested_questions or [],
             "processing_status": document.processing_status,
             "tags": tags,
             "created_at": document.created_at,
@@ -169,6 +177,8 @@ class DocumentService:
         try:
             text = extract_text(document.file_path, document.file_type)
             chunks = chunk_text(text)
+            if not chunks:
+                raise ValueError("Khong the trich xuat noi dung tai lieu.")
 
             chunk_rows = [
                 DocumentChunk(
@@ -183,9 +193,13 @@ class DocumentService:
             if chunk_rows:
                 self.doc_repo.add_chunks(chunk_rows)
 
-            summary = make_summary(text)
+            suggested_questions = generate_suggested_questions(text, n=3)
+            summary = generate_summary(text, title=document.title)
             self.doc_repo.update_status(
-                document, ProcessingStatus.DONE, summary=summary
+                document,
+                ProcessingStatus.DONE,
+                summary=summary,
+                suggested_questions=suggested_questions,
             )
 
         except Exception as e:
