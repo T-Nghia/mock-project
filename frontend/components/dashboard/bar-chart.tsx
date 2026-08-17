@@ -10,23 +10,36 @@ export function BarChart({ data, className, barClassName }: BarChartProps) {
   const max = Math.max(1, ...data.map((d) => d.value));
 
   if (data.length === 0) {
-    return <p className="py-8 text-center text-sm text-muted-foreground">Chưa có dữ liệu.</p>;
+    return (
+      <div className="flex flex-col items-center justify-center py-10 text-center">
+        <div className="mb-2 text-3xl">📊</div>
+        <p className="text-sm text-muted-foreground">Chưa có dữ liệu.</p>
+      </div>
+    );
   }
 
   return (
-    <div className={cn("flex flex-col gap-2.5", className)}>
-      {data.map((d) => (
-        <div key={d.label} className="flex items-center gap-3">
-          <span className="w-28 shrink-0 truncate text-xs text-muted-foreground" title={d.label}>
+    <div className={cn("flex flex-col gap-3", className)}>
+      {data.map((d, i) => (
+        <div key={d.label} className="group flex items-center gap-3">
+          <span className="w-32 shrink-0 truncate text-xs text-muted-foreground transition-colors group-hover:text-foreground" title={d.label}>
             {d.label}
           </span>
-          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
             <div
-              className={cn("h-full rounded-full bg-primary transition-all", barClassName)}
-              style={{ width: `${(d.value / max) * 100}%` }}
+              className={cn(
+                "h-full rounded-full transition-all duration-700 ease-out",
+                barClassName ?? (i % 2 === 0 ? "gradient-brand" : "bg-primary/60")
+              )}
+              style={{
+                width: `${(d.value / max) * 100}%`,
+                animationDelay: `${i * 80}ms`,
+              }}
             />
           </div>
-          <span className="w-8 shrink-0 text-right text-xs font-medium">{d.value}</span>
+          <span className="w-10 shrink-0 text-right text-xs font-semibold tabular-nums text-foreground">
+            {d.value}
+          </span>
         </div>
       ))}
     </div>
