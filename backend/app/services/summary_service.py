@@ -10,24 +10,13 @@ processing still succeeds in development/offline environments.
 from __future__ import annotations
 
 from collections import Counter
-import logging
 import math
 import re
 
-from app.core.config import settings
+from app.services import gemini_provider
+from app.utils.text_excerpt import representative_excerpt
 
-try:
-    from openai import OpenAI
-except ImportError:  # pragma: no cover - dependency is optional at runtime
-    OpenAI = None
-
-try:
-    import google.generativeai as genai
-except ImportError:  # pragma: no cover - dependency is optional at runtime
-    genai = None
-
-
-logger = logging.getLogger(__name__)
+_SYSTEM_INSTRUCTION = "You summarize uploaded learning documents faithfully and concisely."
 
 EMPTY_SUMMARY = "(Không thể trích xuất nội dung tài liệu để tóm tắt tự động.)"
 MAX_SOURCE_CHARS = 18_000
@@ -97,37 +86,8 @@ def _truncate_at_boundary(text: str, max_chars: int = MAX_SUMMARY_CHARS) -> str:
     return candidate.rstrip(" ,;:-") + "…"
 
 
-def _representative_excerpt(text: str, max_chars: int = MAX_SOURCE_CHARS) -> str:
-    """Keep head/middle/tail context for long documents without overlap."""
-    clean = re.sub(r"\s+", " ", text).strip()
-    if len(clean) <= max_chars:
-        return clean
-
-    # 45% beginning, 30% middle, 25% end.  The source must be longer than
-    # max_chars here, so these slices cannot overlap after the calculations.
-    head_len = int(max_chars * 0.45)
-    middle_len = int(max_chars * 0.30)
-    tail_len = max_chars - head_len - middle_len
-
-    head = clean[:head_len].rsplit(" ", 1)[0]
-    middle_start = max(head_len, (len(clean) - middle_len) // 2)
-    middle_end = min(len(clean) - tail_len, middle_start + middle_len)
-    middle = clean[middle_start:middle_end].strip()
-    if " " in middle:
-        middle = middle.split(" ", 1)[-1].rsplit(" ", 1)[0]
-    tail = clean[-tail_len:].split(" ", 1)[-1]
-
-    return (
-        f"{head}\n\n"
-        "[... phần giữa tài liệu ...]\n\n"
-        f"{middle}\n\n"
-        "[... phần cuối tài liệu ...]\n\n"
-        f"{tail}"
-    )
-
-
 def _build_summary_prompt(text: str, title: str | None = None) -> str:
-    excerpt = _representative_excerpt(text)
+    excerpt = representative_excerpt(text, max_chars=MAX_SOURCE_CHARS)
     title_line = title.strip() if title and title.strip() else "(không có tiêu đề)"
     return f"""
 Bạn là trợ lý học tập. Hãy tóm tắt tài liệu dưới đây một cách trung thực và dễ hiểu.
@@ -166,58 +126,6 @@ def _clean_llm_summary(raw: str | None) -> str | None:
     if len(clean) < 40:
         return None
     return _truncate_at_boundary(clean)
-
-
-def _generate_with_gemini(prompt: str) -> str | None:
-    api_key = settings.GEMINI_API_KEY.strip()
-    if not api_key or genai is None:
-        return None
-
-    # Keep model choices aligned with the existing Suggested Question feature.
-    model_names = (
-        "gemini-2.5-flash",
-        "gemini-flash-latest",
-        "gemini-1.5-flash",
-    )
-    for model_name in model_names:
-        try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(
-                prompt,
-                generation_config={"temperature": 0.2},
-            )
-            summary = _clean_llm_summary(getattr(response, "text", None))
-            if summary:
-                return summary
-        except Exception as exc:  # provider/network failure must not fail upload
-            logger.warning("Generate Summary: Gemini model %s failed: %s", model_name, exc)
-    return None
-
-
-def _generate_with_openai(prompt: str) -> str | None:
-    api_key = settings.OPENAI_API_KEY.strip()
-    if not api_key or OpenAI is None:
-        return None
-
-    try:
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You summarize uploaded learning documents faithfully and concisely.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-        )
-        raw = response.choices[0].message.content if response.choices else None
-        return _clean_llm_summary(raw)
-    except Exception as exc:  # provider/network failure must not fail upload
-        logger.warning("Generate Summary: OpenAI failed: %s", exc)
-        return None
 
 
 def _tokenize(sentence: str) -> list[str]:
@@ -308,11 +216,8 @@ def generate_summary(text: str, title: str | None = None) -> str:
 
     prompt = _build_summary_prompt(clean_text, title=title)
 
-    summary = _generate_with_gemini(prompt)
-    if summary:
-        return summary
-
-    summary = _generate_with_openai(prompt)
+    raw = gemini_provider.generate_text(prompt, system_instruction=_SYSTEM_INSTRUCTION)
+    summary = _clean_llm_summary(raw)
     if summary:
         return summary
 

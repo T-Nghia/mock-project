@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from app.core.config import settings
-from app.services import summary_service
+from app.services import gemini_provider, summary_service
 
 
 class GenerateSummaryTestCase(unittest.TestCase):
@@ -75,7 +75,7 @@ class GenerateSummaryTestCase(unittest.TestCase):
             )
 
         class FakeModel:
-            def __init__(self, _name):
+            def __init__(self, _name, system_instruction=None):
                 pass
 
             def generate_content(self, _prompt, generation_config=None):
@@ -89,7 +89,7 @@ class GenerateSummaryTestCase(unittest.TestCase):
             GenerativeModel = FakeModel
 
         settings.GEMINI_API_KEY = "test-key"
-        with patch.object(summary_service, "genai", FakeGenAI):
+        with patch.object(gemini_provider, "genai", FakeGenAI):
             result = summary_service.generate_summary(
                 "Nội dung đủ dài để kiểm tra cơ chế sinh tóm tắt bằng nhà cung cấp Gemini. " * 5
             )
@@ -98,7 +98,7 @@ class GenerateSummaryTestCase(unittest.TestCase):
 
     def test_provider_error_falls_back_locally_instead_of_failing_job(self):
         class BrokenModel:
-            def __init__(self, _name):
+            def __init__(self, _name, system_instruction=None):
                 pass
 
             def generate_content(self, _prompt, generation_config=None):
@@ -112,7 +112,7 @@ class GenerateSummaryTestCase(unittest.TestCase):
             GenerativeModel = BrokenModel
 
         settings.GEMINI_API_KEY = "test-key"
-        with patch.object(summary_service, "genai", BrokenGenAI):
+        with patch.object(gemini_provider, "genai", BrokenGenAI):
             result = summary_service.generate_summary(
                 "Tài liệu mô tả phương pháp xử lý dữ liệu. "
                 "Các bước gồm làm sạch, chuẩn hóa và đánh giá. "

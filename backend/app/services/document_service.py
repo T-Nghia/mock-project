@@ -9,13 +9,10 @@ from app.models.document import Document, DocumentChunk, ProcessingStatus
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
-from app.utils.text_extract import (
-    chunk_text,
-    embed_text,
-    extract_text,
-    generate_suggested_questions,
-)
+from app.utils.text_chunking import chunk_text
+from app.utils.text_extract import embed_text, extract_text
 from app.services.summary_service import generate_summary
+from app.services.suggested_question_service import generate_suggested_questions
 
 
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt", "pptx", "jpg", "jpeg", "png"}
@@ -202,7 +199,14 @@ class DocumentService:
                 suggested_questions=suggested_questions,
             )
 
-        except Exception as e:
-            # Cập nhật trạng thái FAILED nếu có lỗi xử lý
+        # except Exception as e:
+        #     # Cập nhật trạng thái FAILED nếu có lỗi xử lý
+        #     self.doc_repo.update_status(document, ProcessingStatus.FAILED)
+        #     raise e
+        except Exception:
+            self.doc_repo.rollback()
             self.doc_repo.update_status(document, ProcessingStatus.FAILED)
-            raise e
+            raise
+
+    def rollback(self):
+        self.db.rollback()

@@ -90,16 +90,16 @@ services:
   #     migrate:
   #       condition: service_completed_successfully
 
-  # frontend:
-  #   build: ./frontend
-  #   container_name: slrms-frontend
-  #   restart: unless-stopped
-  #   environment:
-  #     NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-  #   ports:
-  #     - "3000:3000"
-  #   depends_on:
-  #     - backend
+  frontend:
+    build: ./frontend
+    container_name: slrms-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
 
 volumes:
   db_data:
