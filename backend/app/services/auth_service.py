@@ -1,0 +1,140 @@
+import uuid
+
+from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.permissions import get_role_permissions
+from app.core.redis_client import redis_client
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
+from app.models.user import User, UserRole
+from app.repositories.user_repo import UserRepository
+from app.schemas.auth import (
+    TeacherCreate,
+    TokenResponse,
+    UserLogin,
+    UserRegister,
+    UserRoleUpdate,
+    UserStatusUpdate,
+)
+
+
+class AuthService:
+
+    _DUMMY_HASH = hash_password("this-is-not-a-real-password") # Tính 1 lần lúc import module
+
+    def __init__(self, db: Session):
+        self.repo = UserRepository(db)
+
+    def register(self, data: UserRegister) -> User:
+        if hasattr(data, "confirm_password") and data.password != data.confirm_password:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mat khau xac nhan khong khop")
+
+        if self.repo.get_by_email(data.email):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Email da duoc su dung")
+
+        return self.repo.create(
+            data.full_name,
+            data.email,
+            hash_password(data.password),
+            role=UserRole.STUDENT,
+        )
+
+    def create_teacher(self, data: TeacherCreate) -> User:
+        if self.repo.get_by_email(data.email):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Email da duoc su dung")
+
+        return self.repo.create(
+            data.full_name,
+            data.email,
+            hash_password(data.password),
+            role=UserRole.TEACHER,
+        )
+
+    def list_users(self) -> list[User]:
+        return self.repo.list_all()
+
+    def update_user_role(
+        self,
+        user_id: uuid.UUID,
+        data: UserRoleUpdate,
+        current_user_id: uuid.UUID,
+    ) -> User:
+        user = self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Nguoi dung khong ton tai")
+
+        if user.id == current_user_id and data.role != UserRole.ADMIN:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Admin khong the ha quyen chinh minh")
+
+        return self.repo.update_role(user, data.role)
+
+    def update_user_status(
+        self,
+        user_id: uuid.UUID,
+        data: UserStatusUpdate,
+        current_user_id: uuid.UUID,
+    ) -> User:
+        user = self.repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Nguoi dung khong ton tai")
+
+        if user.id == current_user_id and not data.is_active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Admin khong the vo hieu hoa chinh minh")
+
+        return self.repo.update_active_status(user, data.is_active)
+
+    def get_permissions(self, user: User) -> dict[str, str | list[str]]:
+        role = getattr(user.role, "value", user.role)
+        permissions = sorted(permission.value for permission in get_role_permissions(user.role))
+        return {"role": role, "permissions": permissions}
+
+    def _issue_tokens(self, user: User) -> TokenResponse:
+        access = create_access_token(str(user.id), user.role.value)
+        refresh, jti = create_refresh_token(str(user.id), user.role.value)
+        redis_client.setex(
+            f"refresh:{user.id}:{jti}",
+            settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+            "valid",
+        ) # Hỗ trợ 1 phiên đăng nhập/user
+        return TokenResponse(access_token=access, refresh_token=refresh)
+
+    def login(self, data: UserLogin) -> TokenResponse:
+        user = self.repo.get_by_email(data.email)
+        password_ok = verify_password(data.password, user.hashed_password if user else self._DUMMY_HASH) # Tránh timing attack
+        if not user or not password_ok:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email hoac mat khau khong dung")
+
+        if not user.is_active:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Tai khoan da bi vo hieu hoa")
+
+        return self._issue_tokens(user)
+
+    def refresh(self, refresh_token: str) -> TokenResponse:
+        payload = decode_access_token(refresh_token)
+        if payload is None or payload.get("type") != "refresh":
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token khong hop le hoac da het han")
+
+        key = f"refresh:{payload['sub']}:{payload['jti']}"
+        if not redis_client.get(key):
+            raise HTTPException(401, "Refresh token da bi thu hoi")
+        redis_client.delete(key)
+
+        user = self.repo.get_by_id(uuid.UUID(payload["sub"]))
+        if not user or not user.is_active:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token khong hop le")
+
+        return self._issue_tokens(user)
+
+    def logout(self, user_id: uuid.UUID, jti: str | None = None):
+        if jti:
+            redis_client.delete(f"refresh:{user_id}:{jti}")
+        else:
+            for key in redis_client.scan_iter(f"refresh:{user_id}:*"):
+                redis_client.delete(key)
