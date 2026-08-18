@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 # structured chat answers should use GeminiProvider.answer() below instead;
 # these are for simple "prompt in, text out" use cases such as document
 # summaries and suggested questions.
-GEMINI_TEXT_MODELS = ("gemini-2.5-flash", "gemini-flash-latest", "gemini-1.5-flash")
 OPENAI_TEXT_MODEL = "gpt-4o-mini"
 
 
@@ -196,20 +195,20 @@ def generate_with_gemini(
     if not api_key or genai is None:
         return None
 
-    for model_name in GEMINI_TEXT_MODELS:
-        try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(model_name, system_instruction=system_instruction)
-            response = model.generate_content(
-                prompt,
-                generation_config={"temperature": temperature},
-            )
-            text = getattr(response, "text", None)
-            if text:
-                return text
-        except Exception as exc:  # provider/network failure must not fail the caller
-            logger.warning("Gemini model %s failed: %s", model_name, exc)
-    return None
+    model_name = settings.GEMINI_TEXT_MODEL.strip() or settings.GEMINI_MODEL.strip()
+    if not model_name:
+        return None
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name, system_instruction=system_instruction)
+        response = model.generate_content(
+            prompt,
+            generation_config={"temperature": temperature},
+        )
+        return getattr(response, "text", None)
+    except Exception as exc:  # provider/network failure must not fail the caller
+        logger.warning("Gemini model %s failed: %s", model_name, exc)
+        return None
 
 
 def generate_with_openai(

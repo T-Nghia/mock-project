@@ -1,18 +1,51 @@
 import json
 import unittest
+from unittest.mock import patch
 import uuid
 
 import httpx
 
+from app.services import gemini_provider
 from app.schemas.retrieval import RetrievedChunk
 from app.services.gemini_provider import (
     GeneratedAnswer,
     GeminiProvider,
     GeminiProviderError,
 )
+from app.core.config import settings
 
 
 class GeminiProviderTestCase(unittest.TestCase):
+    def test_text_generation_uses_configured_text_model(self):
+        original_model = settings.GEMINI_TEXT_MODEL
+        settings.GEMINI_TEXT_MODEL = "configured-text-model"
+        captured = []
+
+        class FakeResponse:
+            text = "configured response"
+
+        class FakeModel:
+            def __init__(self, name, system_instruction=None):
+                captured.append(name)
+
+            def generate_content(self, prompt, generation_config=None):
+                return FakeResponse()
+
+        class FakeGenAI:
+            @staticmethod
+            def configure(api_key):
+                pass
+
+            GenerativeModel = FakeModel
+
+        try:
+            with patch.object(gemini_provider, "genai", FakeGenAI):
+                result = gemini_provider.generate_with_gemini("prompt")
+        finally:
+            settings.GEMINI_TEXT_MODEL = original_model
+
+        self.assertEqual(result, "configured response")
+        self.assertEqual(captured, ["configured-text-model"])
     @staticmethod
     def chunk() -> RetrievedChunk:
         return RetrievedChunk(

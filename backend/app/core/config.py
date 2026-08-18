@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = ""
+    GEMINI_TEXT_MODEL: str = ""
     GEMINI_TIMEOUT_SECONDS: float = 30.0
     GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
     GEMINI_EMBEDDING_DIM: int = 384
