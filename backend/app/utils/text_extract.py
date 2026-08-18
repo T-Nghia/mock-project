@@ -131,8 +131,51 @@ def _extract_docx_blocks(file_path: str) -> list[ExtractedBlock]:
     return blocks
 
 
+_NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)\.?\s+.+$")
+_CHAPTER_HEADING_RE = re.compile(r"^(?:Chương|Chapter)\s+\d+(?:\s*:\s*.+)?$", re.IGNORECASE)
+_SPECIAL_HEADING_RE = re.compile(r"^(?:Phụ lục(?:\s+\S+)?|Appendix(?:\s+\S+)?|Mục lục|Contents)$", re.IGNORECASE)
+
+
+def _pdf_heading_level(text: str) -> int | None:
+    clean = text.strip()
+    if len(clean) > 120 or clean.endswith((".", "?", "!")):
+        return None
+    numbered = _NUMBERED_HEADING_RE.fullmatch(clean)
+    if numbered:
+        return numbered.group(1).count(".") + 1
+    if _CHAPTER_HEADING_RE.fullmatch(clean) or _SPECIAL_HEADING_RE.fullmatch(clean):
+        return 1
+    return None
+
+
+def _extract_pdf_blocks(file_path: str) -> list[ExtractedBlock]:
+    reader = PdfReader(file_path)
+    blocks: list[ExtractedBlock] = []
+    for page in reader.pages:
+        page_text = (page.extract_text() or "").strip()
+        for paragraph in re.split(r"\n\s*\n+", page_text):
+            clean = re.sub(r"\s+", " ", paragraph).strip()
+            if not clean:
+                continue
+            level = _pdf_heading_level(clean)
+            blocks.append(
+                ExtractedBlock(
+                    kind="heading" if level is not None else "paragraph",
+                    text=clean,
+                    heading_level=level,
+                )
+            )
+    return blocks
+
+
 def extract_blocks(file_path: str, file_type: str) -> list[ExtractedBlock]:
-    if file_type.lower() != "docx":
+    normalized_type = file_type.lower()
+    extractors = {
+        "docx": _extract_docx_blocks,
+        "pdf": _extract_pdf_blocks,
+    }
+    extractor = extractors.get(normalized_type)
+    if extractor is None:
         return []
     try:
         return [
@@ -141,10 +184,10 @@ def extract_blocks(file_path: str, file_type: str) -> list[ExtractedBlock]:
                 text=block.text.replace("\x00", ""),
                 heading_level=block.heading_level,
             )
-            for block in _extract_docx_blocks(file_path)
+            for block in extractor(file_path)
         ]
     except Exception:
-        logger.exception("Structured DOCX extraction failed: path=%s", file_path)
+        logger.exception("Structured extraction failed: type=%s path=%s", normalized_type, file_path)
         return []
 
 

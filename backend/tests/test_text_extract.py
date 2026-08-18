@@ -41,6 +41,27 @@ class TextExtractTestCase(unittest.TestCase):
         self.assertEqual(result, "Trang mot\n\nTrang ba")
         pdf_reader.assert_called_once_with("lesson.pdf")
 
+    @patch("app.utils.text_extract.PdfReader")
+    def test_pdf_blocks_detect_numbered_headings_and_paragraphs(self, pdf_reader):
+        page = MagicMock()
+        page.extract_text.return_value = (
+            "1. Tổng quan dịch vụ\n\n"
+            "NovaDocs là nền tảng quản lý tài liệu.\n\n"
+            "1.1 Khung thời gian vận hành\n\n"
+            "Cửa sổ bảo trì diễn ra định kỳ."
+        )
+        pdf_reader.return_value.pages = [page]
+
+        self.assertEqual(
+            extract_blocks("lesson.pdf", "pdf"),
+            [
+                ExtractedBlock("heading", "1. Tổng quan dịch vụ", 1),
+                ExtractedBlock("paragraph", "NovaDocs là nền tảng quản lý tài liệu."),
+                ExtractedBlock("heading", "1.1 Khung thời gian vận hành", 2),
+                ExtractedBlock("paragraph", "Cửa sổ bảo trì diễn ra định kỳ."),
+            ],
+        )
+
     def test_unsupported_format_logs_warning_and_returns_empty_string(self):
         with self.assertLogs("app.utils.text_extract", level="WARNING") as logs:
             result = extract_text("slides.pptx", "pptx")

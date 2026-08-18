@@ -228,8 +228,8 @@ class DocumentService:
 
         try:
             text = extract_text(document.file_path, document.file_type)
-            if document.file_type.lower() == "docx":
-                blocks = extract_blocks(document.file_path, "docx")
+            if document.file_type.lower() in {"docx", "pdf"}:
+                blocks = extract_blocks(document.file_path, document.file_type)
                 text = "\n\n".join(block.text for block in blocks)
                 chunks = chunk_blocks(blocks)
             else:
