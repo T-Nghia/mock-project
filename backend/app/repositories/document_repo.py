@@ -22,6 +22,10 @@ class DocumentRepository:
         stmt = select(Document).where(Document.id == document_id)
         return self.db.scalar(stmt)
 
+    def delete(self, document: Document) -> None:
+        self.db.delete(document)
+        self.db.commit()
+
     def list_by_folder(self, folder_id: uuid.UUID | None = None) -> list[Document]:
         stmt = select(Document)
         if folder_id is not None:
