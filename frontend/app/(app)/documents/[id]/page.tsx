@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Download, FileText, User as UserIcon, Calendar, HardDrive, Sparkles } from "lucide-react";
+import { ArrowLeft, Download, Eye, FileText, User as UserIcon, Calendar, HardDrive, Sparkles } from "lucide-react";
 import { documentsApi, ApiError } from "@/lib/api";
 import type { DocumentMetadata } from "@/lib/types";
+import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +14,8 @@ import { StatusBadge } from "@/components/documents/status-badge";
 import { BookmarkButton } from "@/components/documents/bookmark-button";
 import { RatingStars } from "@/components/documents/rating-stars";
 import { CommentsSection } from "@/components/documents/comments-section";
+import { DocumentViewer } from "@/components/documents/document-viewer";
+import { DeleteDocumentButton } from "@/components/documents/delete-document-button";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { formatBytes, formatDate } from "@/lib/utils";
@@ -22,11 +25,13 @@ export default function DocumentDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [doc, setDoc] = useState<DocumentMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   useEffect(() => {
     documentsApi
@@ -53,6 +58,11 @@ export default function DocumentDetailPage() {
     }
   }
 
+  function handleDeleted() {
+    toast({ title: "Đã xóa tài liệu", variant: "success" });
+    router.push("/search");
+  }
+
   if (loading) {
     return (
       <div className="mx-auto max-w-2xl flex flex-col gap-4">
@@ -73,6 +83,8 @@ export default function DocumentDetailPage() {
     );
   }
 
+  const canDelete = user && (user.id === doc.uploaded_by.id || user.role === "admin");
+
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4">
       <Button variant="ghost" size="sm" className="w-fit" onClick={() => router.back()}>
@@ -90,11 +102,17 @@ export default function DocumentDetailPage() {
               <p className="mt-1 text-xs uppercase text-muted-foreground">{doc.file_type}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <BookmarkButton documentId={doc.id} />
+            <Button variant="outline" size="sm" onClick={() => setViewerOpen(true)}>
+              <Eye className="h-4 w-4" /> Xem
+            </Button>
             <Button onClick={handleDownload} loading={downloading} size="sm">
               <Download className="h-4 w-4" /> Tải xuống
             </Button>
+            {canDelete && (
+              <DeleteDocumentButton documentId={doc.id} documentTitle={doc.title} onDeleted={handleDeleted} />
+            )}
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
@@ -175,6 +193,18 @@ export default function DocumentDetailPage() {
             <DialogDescription className="truncate">{doc.title}</DialogDescription>
           </DialogHeader>
           {chatOpen && <ChatPanel documentId={doc.id} suggestedQuestions={doc.suggested_questions} />}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
+        <DialogContent className="max-w-3xl" onClose={() => setViewerOpen(false)}>
+          <DialogHeader>
+            <DialogTitle>Xem tài liệu</DialogTitle>
+            <DialogDescription className="truncate">{doc.title}</DialogDescription>
+          </DialogHeader>
+          {viewerOpen && (
+            <DocumentViewer documentId={doc.id} fileType={doc.file_type} onDownload={handleDownload} />
+          )}
         </DialogContent>
       </Dialog>
     </div>
