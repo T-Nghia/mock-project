@@ -1,6 +1,6 @@
 import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -94,3 +94,41 @@ def download_document_endpoint(
         filename=download_name,
         media_type=media_type,
     )
+
+
+@router.get("/documents/{document_id}/view")
+def view_document_endpoint(
+    document_id: uuid.UUID,
+    current_user=Depends(require_permission(Permission.READ_DOCUMENT)),
+    db: Session = Depends(get_db),
+):
+    """Xem tài liệu trực tiếp trên trình duyệt (inline), không ép tải về máy.
+
+    Dùng cho preview: nhúng PDF/ảnh trong <iframe>/<img> ngay trên web thay vì
+    phải tải file xuống trước như endpoint /download.
+    """
+    service = _build_service(db)
+    file_path, display_name, media_type = service.get_file_for_view(document_id)
+
+    return FileResponse(
+        path=file_path,
+        filename=display_name,
+        media_type=media_type,
+        content_disposition_type="inline",
+    )
+
+
+@router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document_endpoint(
+    document_id: uuid.UUID,
+    current_user=Depends(require_permission(Permission.REVIEW_DOCUMENT)),
+    db: Session = Depends(get_db),
+):
+    """Xóa tài liệu.
+
+    Chỉ người đã tải tài liệu lên hoặc Admin mới được xóa. Student không có
+    quyền REVIEW_DOCUMENT nên không thể gọi endpoint này.
+    """
+    service = _build_service(db)
+    service.delete_document(document_id, current_user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
