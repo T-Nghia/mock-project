@@ -7,6 +7,7 @@ from fastapi import HTTPException, UploadFile, status
 
 from app.core.config import settings
 from app.models.document import Document, DocumentChunk, ProcessingStatus
+from app.models.user import UserRole
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
@@ -122,6 +123,43 @@ class DocumentService:
         )
 
         return file_path, download_name, media_type
+
+    def get_file_for_view(self, document_id: uuid.UUID) -> tuple[Path, str, str]:
+        """Trả về (đường dẫn file, tên file hiển thị, media_type) để xem trực tiếp trên trình duyệt (inline).
+
+        Dùng chung logic phân giải file với get_file_for_download, chỉ khác ở
+        cách endpoint gắn Content-Disposition (inline thay vì attachment).
+        """
+        return self.get_file_for_download(document_id)
+
+    def delete_document(self, document_id: uuid.UUID, current_user) -> None:
+        """Xóa tài liệu (record DB + file vật lý trên đĩa).
+
+        Chỉ người đã tải tài liệu lên (chủ sở hữu) hoặc Admin mới được xóa.
+        Các dữ liệu liên quan (chunks, tags, chat sessions, bookmark, comment,
+        rating) đã được cấu hình ON DELETE CASCADE/SET NULL ở DB nên sẽ tự dọn theo.
+        """
+        document = self._get_document_or_404(document_id)
+
+        is_owner = document.uploaded_by == current_user.id
+        is_admin = current_user.role == UserRole.ADMIN
+        if not is_owner and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn chỉ có thể xóa tài liệu do chính mình tải lên.",
+            )
+
+        file_path = Path(document.file_path)
+
+        self.doc_repo.delete(document)
+
+        try:
+            if file_path.is_file():
+                file_path.unlink()
+        except OSError:
+            # Record DB đã xóa thành công; lỗi xóa file vật lý không nên làm
+            # request thất bại (vd. quyền truy cập đĩa) — bỏ qua nhưng không raise.
+            pass
 
 
     def save_upload(
