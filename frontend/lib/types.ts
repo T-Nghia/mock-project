@@ -146,6 +146,7 @@ export interface ChatCitation {
   chunk_index: number;
   quote: string;
   score: number;
+  heading_path: string[];
 }
 
 export interface ChatMessage {
