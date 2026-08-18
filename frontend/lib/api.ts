@@ -214,6 +214,9 @@ export const documentsApi = {
   getMetadata(documentId: string) {
     return request<DocumentMetadata>(`/documents/${documentId}`);
   },
+  remove(documentId: string) {
+    return request<void>(`/documents/${documentId}`, { method: "DELETE" });
+  },
   async download(documentId: string): Promise<{ blob: Blob; filename: string }> {
     const token = tokenStore.getAccess();
     const res = await fetch(`${API_URL}/documents/${documentId}/download`, {
@@ -225,6 +228,16 @@ export const documentsApi = {
     const filename = match?.[1] ?? "document";
     const blob = await res.blob();
     return { blob, filename };
+  },
+  async view(documentId: string): Promise<{ blob: Blob; contentType: string }> {
+    const token = tokenStore.getAccess();
+    const res = await fetch(`${API_URL}/documents/${documentId}/view`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!res.ok) throw new ApiError(res.status, await parseErrorMessage(res));
+    const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+    const blob = await res.blob();
+    return { blob, contentType };
   },
 };
 
@@ -282,8 +295,14 @@ export const chatApi = {
   createSession(documentId: string) {
     return request<ChatSession>("/chat/sessions", { method: "POST", body: { document_id: documentId } });
   },
+  listSessionsForDocument(documentId: string) {
+    return request<ChatSession[]>(`/chat/documents/${documentId}/sessions`);
+  },
   getSession(sessionId: string) {
     return request<ChatSessionDetail>(`/chat/sessions/${sessionId}`);
+  },
+  deleteSession(sessionId: string) {
+    return request<void>(`/chat/sessions/${sessionId}`, { method: "DELETE" });
   },
   ask(sessionId: string, content: string) {
     return request<ChatAnswer>(`/chat/sessions/${sessionId}/messages`, { method: "POST", body: { content } });
