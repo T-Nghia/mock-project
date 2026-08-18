@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ["DATABASE_URL"] = "sqlite://"
 
@@ -20,6 +21,25 @@ from app.models.document import Document
 from app.models.folder import Folder
 from app.models.tag import DocumentTag, Tag
 from app.models.user import User, UserRole
+from app.utils.text_extract import EMBEDDING_DIM
+
+
+class _FakeEmbeddingProvider:
+    """Fake Gemini embedding provider: tránh gọi mạng thật trong test API-level.
+
+    Endpoint /documents/upload chạy background task đồng bộ (process_document_sync)
+    ngay trong TestClient, nên nếu không patch provider này, mọi test upload sẽ
+    lỗi vì thiếu GEMINI_API_KEY thật — không liên quan tới logic đang được kiểm thử.
+    """
+
+    def embed_batch(self, texts, *, task_type):
+        return [[0.0] * EMBEDDING_DIM for _ in texts]
+
+    def close(self):
+        pass
+
+
+os.environ["DATABASE_URL"] = "sqlite://"
 
 engine = create_engine(
     "sqlite://",
@@ -45,6 +65,13 @@ class DocumentAPITestCase(unittest.TestCase):
         self.previous_db_override = app.dependency_overrides.get(get_db)
         app.dependency_overrides[get_db] = override_get_db
         self.client = TestClient(app)
+
+        # Tranh goi Gemini API that trong background task xu ly upload.
+        self._embedding_patch = patch(
+            "app.services.document_service.GeminiEmbeddingProvider",
+            return_value=_FakeEmbeddingProvider(),
+        )
+        self._embedding_patch.start()
 
         # Sandbox UPLOAD_DIR vào thư mục tạm cho từng test, tránh phụ thuộc
         # vào đường dẫn "/app/uploads" mặc định (chỉ tồn tại trong container)
@@ -74,6 +101,7 @@ class DocumentAPITestCase(unittest.TestCase):
             app.dependency_overrides[get_db] = self.previous_db_override
         settings.UPLOAD_DIR = self._original_upload_dir
         shutil.rmtree(self._tmp_upload_dir, ignore_errors=True)
+        self._embedding_patch.stop()
 
     # ---- helpers -----------------------------------------------------
 
@@ -247,6 +275,106 @@ class DocumentAPITestCase(unittest.TestCase):
             f"/documents/{document_id}/download", headers=self.teacher_headers
         )
         self.assertEqual(response.status_code, 404, response.text)
+
+    # ---- View (xem truc tiep tren web) ---------------------------------
+
+    def test_view_returns_file_content_with_inline_disposition(self):
+        content = b"Noi dung file de xem truc tiep."
+        upload = self._upload(
+            self.teacher_headers,
+            filename="raw-uuid-name.txt",
+            content=content,
+            title="Bai Giang Xem Truc Tiep",
+        )
+        document_id = upload.json()["id"]
+
+        # Student cung xem duoc (READ_DOCUMENT).
+        response = self.client.get(
+            f"/documents/{document_id}/view", headers=self.student_headers
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.content, content)
+        content_disposition = response.headers["content-disposition"]
+        self.assertIn("inline", content_disposition)
+        self.assertNotIn("attachment", content_disposition)
+
+    def test_view_not_found(self):
+        response = self.client.get(
+            f"/documents/{uuid.uuid4()}/view", headers=self.teacher_headers
+        )
+        self.assertEqual(response.status_code, 404, response.text)
+
+    def test_view_without_token_is_rejected(self):
+        upload = self._upload(self.teacher_headers)
+        document_id = upload.json()["id"]
+        response = self.client.get(f"/documents/{document_id}/view")
+        self.assertEqual(response.status_code, 401, response.text)
+
+    # ---- Delete ----------------------------------------------------------
+
+    def test_uploader_can_delete_own_document(self):
+        upload = self._upload(self.teacher_headers, title="Se bi xoa")
+        document_id = upload.json()["id"]
+        saved_file = self._uploaded_file_path()
+        self.assertTrue(saved_file.exists())
+
+        response = self.client.delete(
+            f"/documents/{document_id}", headers=self.teacher_headers
+        )
+        self.assertEqual(response.status_code, 204, response.text)
+
+        # Tai lieu khong con truy van duoc nua.
+        get_response = self.client.get(
+            f"/documents/{document_id}", headers=self.teacher_headers
+        )
+        self.assertEqual(get_response.status_code, 404, get_response.text)
+        # File vat ly cung bi xoa khoi dia.
+        self.assertFalse(saved_file.exists())
+
+    def test_admin_can_delete_any_document(self):
+        admin = self._create_user("admin@example.com", UserRole.ADMIN)
+        admin_headers = self._auth_headers(admin)
+
+        upload = self._upload(self.teacher_headers, title="Cua giao vien")
+        document_id = upload.json()["id"]
+
+        response = self.client.delete(
+            f"/documents/{document_id}", headers=admin_headers
+        )
+        self.assertEqual(response.status_code, 204, response.text)
+
+    def test_student_cannot_delete_document(self):
+        upload = self._upload(self.teacher_headers, title="Tai lieu")
+        document_id = upload.json()["id"]
+
+        response = self.client.delete(
+            f"/documents/{document_id}", headers=self.student_headers
+        )
+        self.assertEqual(response.status_code, 403, response.text)
+
+    def test_teacher_cannot_delete_another_teachers_document(self):
+        other_teacher = self._create_user("other-teacher@example.com", UserRole.TEACHER)
+        other_headers = self._auth_headers(other_teacher)
+
+        upload = self._upload(self.teacher_headers, title="Cua giao vien A")
+        document_id = upload.json()["id"]
+
+        response = self.client.delete(
+            f"/documents/{document_id}", headers=other_headers
+        )
+        self.assertEqual(response.status_code, 403, response.text)
+
+    def test_delete_not_found(self):
+        response = self.client.delete(
+            f"/documents/{uuid.uuid4()}", headers=self.teacher_headers
+        )
+        self.assertEqual(response.status_code, 404, response.text)
+
+    def test_delete_without_token_is_rejected(self):
+        upload = self._upload(self.teacher_headers)
+        document_id = upload.json()["id"]
+        response = self.client.delete(f"/documents/{document_id}")
+        self.assertEqual(response.status_code, 401, response.text)
 
 
 if __name__ == "__main__":
