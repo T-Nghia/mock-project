@@ -37,7 +37,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
         onClick={() => onOpenChange(false)}
         aria-hidden
       />
-      <div className="relative z-10 w-full max-w-lg animate-slide-up">{children}</div>
+      <div className="relative z-10 w-full max-h-[90vh] overflow-y-auto animate-slide-up">{children}</div>
     </div>,
     document.body
   );
@@ -45,7 +45,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
 
 export function DialogContent({ className, children, onClose }: { className?: string; children: React.ReactNode; onClose?: () => void }) {
   return (
-    <div className={cn("rounded-lg border border-border bg-card p-6 shadow-xl", className)}>
+    <div className={cn("relative mx-auto w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-xl", className)}>
       {onClose && (
         <button
           onClick={onClose}
