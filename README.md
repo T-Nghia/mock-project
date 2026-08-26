@@ -1,147 +1,206 @@
 # Smart Learning Resource Management System
 
-Nền tảng Quản lý Tài liệu Học tập Thông minh — base project
+Nền tảng quản lý tài liệu học tập thông minh dành cho sinh viên, giảng viên và quản trị viên. Hệ thống hỗ trợ tổ chức, tìm kiếm, chia sẻ tài liệu và hỏi đáp trên nội dung tài liệu bằng mô hình RAG.
 
-## 1. Kiến trúc
+## Tính năng chính
 
-Layered Architecture, tách 4 lớp như đặc tả mục 3.1:
+- Đăng ký, đăng nhập, làm mới token và khôi phục mật khẩu.
+- Phân quyền theo vai trò `Student`, `Teacher` và `Admin`.
+- Tải lên, xem trực tiếp, tải xuống và xóa tài liệu.
+- Hỗ trợ PDF, DOC, DOCX, TXT, PPTX, JPG, JPEG và PNG; dung lượng tối đa mặc định 50 MB.
+- Tổ chức tài liệu theo thư mục và thẻ.
+- Tìm kiếm, lọc và truy xuất nội dung tài liệu bằng PostgreSQL/pgvector.
+- Chat với tài liệu, lưu lịch sử hội thoại và gợi ý câu hỏi.
+- Đánh dấu yêu thích, đánh giá và bình luận tài liệu.
+- Dashboard thống kê và màn hình quản lý người dùng cho Admin.
 
+## Công nghệ sử dụng
+
+| Thành phần | Công nghệ |
+| --- | --- |
+| Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS |
+| Backend | FastAPI, SQLAlchemy 2, Pydantic 2 |
+| Cơ sở dữ liệu | PostgreSQL 16, pgvector |
+| Xác thực | JWT, bcrypt |
+| AI/RAG | Gemini (tùy chọn), embedding và truy xuất bằng pgvector |
+| Hạ tầng | Docker, Docker Compose, Redis |
+| Migration | Alembic |
+
+## Kiến trúc
+
+Backend được tổ chức theo kiến trúc phân lớp:
+
+```text
+FastAPI Router → Service → Repository → PostgreSQL/pgvector
 ```
-API Layer (FastAPI routers)  →  Service Layer  →  Repository Layer  →  Database (PostgreSQL + pgvector)
-```
 
-```
+```text
 .
-├── docker-compose.yml
-├── .env / .env.example
-├── db/init.sql               # bật extension pgvector khi Postgres khởi tạo lần đầu
-├── backend/                  # FastAPI (Python)
-│   ├── alembic.ini
-│   ├── alembic/
-│   │   ├── env.py            # lấy DATABASE_URL & Base.metadata trực tiếp từ app
-│   │   └── versions/
-│   │       └── ..._initial_schema.py   # migration đầu tiên, đã test upgrade+downgrade thật
-│   └── app/
-│       ├── core/             # config, database session, JWT/bcrypt
-│       ├── models/           # SQLAlchemy models (users, folders, documents, ...)
-│       ├── schemas/          # Pydantic request/response
-│       ├── repositories/     # truy vấn DB thuần (Repository Pattern)
-│       ├── services/         # business logic (auth, document, search, dashboard, AI)
-│       ├── api/routers/      # FastAPI endpoints + phân quyền theo role
-│       ├── worker/           # Celery app + task xử lý tài liệu nền
-│       ├── utils/            # extract text / chunk / summary / embedding
-│       ├── seed.py           # tạo tài khoản Admin mặc định
-│       └── main.py
-└── frontend/                 # Next.js (App Router) — login, dashboard, documents
+├── backend/
+│   ├── alembic/             # Database migrations
+│   ├── app/
+│   │   ├── api/routers/     # HTTP endpoints
+│   │   ├── core/            # Cấu hình, database, bảo mật, phân quyền
+│   │   ├── models/          # SQLAlchemy models
+│   │   ├── repositories/    # Truy cập dữ liệu
+│   │   ├── schemas/         # Pydantic request/response schemas
+│   │   ├── services/        # Nghiệp vụ và AI/RAG
+│   │   └── utils/           # Trích xuất, chia đoạn và xử lý văn bản
+│   └── tests/
+├── db/init.sql              # Khởi tạo extension pgvector
+├── docs/                    # Tài liệu API, backend và database
+├── frontend/                # Next.js App Router
+├── .env.example
+└── docker-compose.yml
 ```
 
-## 2. Công nghệ
+## Chạy dự án bằng Docker
 
-| Hạng mục | Công nghệ |
-|---|---|
-| Backend | FastAPI, SQLAlchemy 2.0, Pydantic v2 |
-| Database | PostgreSQL 16 + pgvector (vector search cho RAG) |
-| Auth | JWT (python-jose) + bcrypt (passlib) |
-| Async job | Celery + Redis (xử lý OCR/chunk/embedding nền, không block upload) |
-| AI/RAG | Retrieval nội bộ (cosine similarity trên `document_chunks.embedding`) — xem mục 5 |
-| Frontend | Next.js 14, App Router, TypeScript |
-| Containerization | Docker + Docker Compose |
+### Yêu cầu
 
-## 3. Chạy project
+- Git
+- Docker Desktop hoặc Docker Engine có Docker Compose
+
+### 1. Chuẩn bị biến môi trường
 
 ```bash
-git clone <repo>   # hoặc giải nén file zip đã tải
-cd smart-learning-rms
+git clone <repository-url>
+cd <repository-directory>
+cp .env.example .env
+```
 
-cp .env.example .env    # (đã có sẵn .env mẫu, có thể sửa JWT_SECRET_KEY...)
+Trên PowerShell, dùng lệnh sau thay cho `cp`:
 
+```powershell
+Copy-Item .env.example .env
+```
+
+Đổi `JWT_SECRET_KEY` trong `.env` trước khi dùng ở môi trường thật. `GEMINI_API_KEY` là tùy chọn; khi không có khóa, hệ thống dùng cơ chế tìm kiếm từ khóa và tóm tắt trích xuất cục bộ.
+
+### 2. Khởi động
+
+```bash
 docker compose up --build
 ```
 
-`docker compose up` sẽ tự chạy service `migrate` (áp dụng toàn bộ Alembic migrations — tạo extension
-`pgvector` + 11 bảng) trước khi `backend` và `worker` khởi động; bạn sẽ thấy log `slrms-migrate exited
-with code 0` rồi mới đến `slrms-backend`/`slrms-worker` chạy. Không cần chạy migration thủ công.
+Service `migrate` sẽ tự động:
 
-Sau khi tất cả container chạy (lần đầu build ~2-3 phút):
+1. Chờ PostgreSQL sẵn sàng.
+2. Chạy toàn bộ Alembic migration.
+3. Tạo tài khoản Admin mặc định nếu chưa tồn tại.
+4. Cho phép backend khởi động sau khi hoàn tất.
 
-- Backend API: http://localhost:8000  — Swagger UI: http://localhost:8000/docs
-- Frontend: http://localhost:3000
-- PostgreSQL: localhost:5432 (user/pass trong `.env`)
-- Redis: localhost:6379
+Các địa chỉ sau sẽ khả dụng:
 
-Tạo tài khoản Admin mặc định (chỉ cần chạy 1 lần):
+| Dịch vụ | Địa chỉ |
+| --- | --- |
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
+| Health check | http://localhost:8000/health |
+| PostgreSQL | `localhost:5432` |
+| Redis | `localhost:6379` |
 
-```bash
-docker compose exec backend python -m app.seed
-# Created admin: admin@slrms.local / Admin@123
+Tài khoản Admin mặc định:
+
+```text
+Email:    admin@slrms.com
+Password: Admin@123
 ```
 
-Đăng nhập ở http://localhost:3000/login bằng tài khoản trên, hoặc `/register` để tạo tài khoản Student.
-Để có tài khoản Teacher, Admin cần cập nhật `role` trực tiếp trong DB (hoặc bổ sung API "tạo Teacher" — xem mục 6).
+Hãy đổi mật khẩu mặc định nếu triển khai ngoài môi trường phát triển. Người dùng có thể tự đăng ký tài khoản Student tại `/register`; Admin có thể tạo Teacher và quản lý tài khoản tại `/admin/users`.
 
-Dừng project: `docker compose down` (thêm `-v` nếu muốn xoá luôn dữ liệu Postgres/uploads).
-
-## 4. Các module đã triển khai (theo đặc tả)
-
-| Module | Trạng thái trong base project |
-
-## 5. Vì sao AI Assistant chạy được mà không cần API key?
-
-`app/utils/text_extract.py::embed_text()` dùng một "pseudo-embedding" xác định (hash từng từ vào vector 384 chiều)
-— đủ để pipeline pgvector + retrieval hoạt động thật (upload → Celery chunk & embed → chat hỏi đáp trả lời trích dẫn
-đúng chunk liên quan), nhưng không "hiểu" ngữ nghĩa như embedding thật. Đây là lựa chọn có chủ đích để:
-
-1. Base project chạy được ngay bằng `docker compose up`, không phụ thuộc key ngoài.
-2. Đúng roadmap Sprint 2 (đặc tả mục Roadmap): nhóm cắm LLM thật vào sau khi Sprint 1 ổn định.
-
-Khi có `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`, sửa 2 chỗ:
-- `embed_text()` → gọi API embedding thật.
-- `AIService.ask()` trong `ai_service.py` → gọi Chat Completion với `context` đã retrieve, thay vì trả nguyên văn.
-
-## 6. Testing
+### 3. Dừng dự án
 
 ```bash
-# Vào container backend rồi cài thêm pytest (đã có sẵn nếu bổ sung vào requirements.txt)
-docker compose exec backend pip install pytest pytest-cov httpx
-docker compose exec backend pytest
+docker compose down
 ```
 
-Gợi ý cấu trúc: `backend/tests/unit/` (test service/repository riêng lẻ), `backend/tests/api/`
-(test endpoint qua `TestClient`), `backend/tests/integration/` (đăng ký → đăng nhập → upload → chat).
-
-## 7. Database migrations (Alembic)
-
-Schema được quản lý hoàn toàn bằng Alembic (không còn dùng `Base.metadata.create_all()`).
-Migration đầu tiên (`alembic/versions/..._initial_schema.py`) đã được **autogenerate từ models thật**
-và test trực tiếp trên Postgres 16 + pgvector (`upgrade head` → tạo đủ 11 bảng + enum types + cột
-`vector(384)` → `downgrade base` → `upgrade head` lại sạch, không lỗi).
-
-Khi sửa/thêm model (ví dụ thêm cột, thêm bảng mới cho Phase 2), tạo migration mới:
+Để đồng thời xóa dữ liệu PostgreSQL và các tệp đã tải lên:
 
 ```bash
-# sửa file trong app/models/... trước, sau đó:
-docker compose exec backend alembic revision --autogenerate -m "mô tả thay đổi"
+docker compose down -v
+```
+
+> Lệnh có `-v` xóa dữ liệu trong Docker volumes và không thể khôi phục nếu chưa sao lưu.
+
+## Cấu hình
+
+Các biến quan trọng trong `.env`:
+
+| Biến | Mô tả |
+| --- | --- |
+| `DATABASE_URL` | Chuỗi kết nối PostgreSQL của backend |
+| `REDIS_URL` | Chuỗi kết nối Redis |
+| `JWT_SECRET_KEY` | Khóa dùng để ký JWT |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Thời hạn access token |
+| `NEXT_PUBLIC_API_URL` | URL API được frontend sử dụng |
+| `GEMINI_API_KEY` | Khóa Gemini để bật sinh câu trả lời và embedding bằng AI |
+| `GEMINI_TEXT_MODEL` | Model Gemini dùng cho tác vụ văn bản |
+| `GEMINI_EMBEDDING_MODEL` | Model tạo embedding |
+| `GEMINI_EMBEDDING_DIM` | Số chiều embedding; mặc định `384` |
+| `SMTP_*` | Cấu hình gửi email khôi phục mật khẩu |
+
+Xem đầy đủ giá trị mẫu tại [`.env.example`](.env.example). Khi thay đổi số chiều embedding, cần bảo đảm cấu hình và kiểu vector trong database migration tương thích với nhau.
+
+## Xử lý tài liệu và AI/RAG
+
+Sau khi upload, backend dùng `BackgroundTasks` của FastAPI để trích xuất văn bản, chia đoạn, tạo embedding, tóm tắt và sinh câu hỏi gợi ý. Worker Celery trong `docker-compose.yml` hiện được tắt; Redis vẫn được khởi động để sẵn sàng cho luồng xử lý nền khi cần mở rộng.
+
+Khi có `GEMINI_API_KEY`, hệ thống gọi Gemini cho các tác vụ AI đã cấu hình. Nếu không có khóa hợp lệ, ứng dụng vẫn chạy với cơ chế cục bộ để phục vụ phát triển và kiểm thử, nhưng chất lượng hiểu ngữ nghĩa sẽ thấp hơn model thật.
+
+## Kiểm thử
+
+Bộ test dùng `unittest` và có thể chạy ngay trong container backend:
+
+```bash
+docker compose exec backend python -m unittest discover -s tests -p "test_*.py"
+```
+
+Test tích hợp pgvector cần PostgreSQL đã migrate và có thể chạy riêng bằng:
+
+```bash
+docker compose exec backend python -m unittest tests.integration.test_retrieval_pgvector
+```
+
+Chạy kiểm tra frontend:
+
+```bash
+docker compose exec frontend npm run lint
+```
+
+## Database migration
+
+Xem trạng thái và lịch sử migration:
+
+```bash
+docker compose exec backend alembic current
+docker compose exec backend alembic history
+```
+
+Sau khi thay đổi SQLAlchemy model, tạo và áp dụng migration mới:
+
+```bash
+docker compose exec backend alembic revision --autogenerate -m "describe change"
 docker compose exec backend alembic upgrade head
 ```
 
-Luôn mở file migration vừa sinh ra để kiểm tra lại (autogenerate không phải lúc nào cũng đoán đúng,
-đặc biệt với cột kiểu đặc biệt như `pgvector.sqlalchemy.Vector` — cần đảm bảo `import pgvector.sqlalchemy`
-có trong file, xem ví dụ ở migration đầu tiên).
+Luôn kiểm tra file migration được sinh tự động trước khi áp dụng, đặc biệt với kiểu dữ liệu `Vector` của pgvector.
 
-Các lệnh Alembic hữu ích khác:
+## Tài liệu bổ sung
 
-```bash
-docker compose exec backend alembic current      # xem migration hiện tại của DB
-docker compose exec backend alembic history       # xem lịch sử migration
-docker compose exec backend alembic downgrade -1  # lùi lại 1 migration
-```
+- [API documentation](docs/api-document.md)
+- [OpenAPI specification](docs/openapi.json)
+- [Backend design](docs/backend-design.md)
+- [Database design](docs/database-design.md)
+- [Hướng dẫn authentication](RUN_AUTH.md)
+- [Hướng dẫn forgot/reset password](RUN_FORGOT_RESET_PASSWORD.md)
 
-## 8. Deployment Guide (tóm tắt)
+## Lưu ý khi triển khai production
 
-- Dev: `docker compose up --build` như trên (có volume mount + `--reload`, tiện code trực tiếp).
-- Production: bỏ `--reload`, bỏ volume mount source code, build image riêng, đặt `JWT_SECRET_KEY`
-  mạnh, giới hạn `CORS_ORIGINS`, và dùng managed Postgres (RDS/Cloud SQL có hỗ trợ pgvector) + managed Redis.
-  Service `migrate` vẫn chạy `alembic upgrade head` như một release step trước khi deploy `backend`/`worker` mới.
-- CI/CD cơ bản: build + push image trên mỗi PR merge vào `main`, deploy qua GitHub Actions (khuyến khích
-  ở guideline mục 13).
-
+- Thay toàn bộ secret và thông tin đăng nhập mặc định.
+- Giới hạn `CORS_ORIGINS` theo domain thực tế.
+- Không chạy Uvicorn với `--reload`.
+- Không mount source code trực tiếp vào container.
+- Dùng PostgreSQL có hỗ trợ pgvector và cấu hình lưu trữ bền vững cho uploads.
+- Chạy `alembic upgrade head` như một bước phát hành trước khi khởi động phiên bản backend mới.
