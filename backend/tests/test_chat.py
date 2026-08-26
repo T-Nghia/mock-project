@@ -16,7 +16,7 @@ from app.core.security import create_access_token
 from app.main import app
 from app.models.chat import ChatMessage, ChatSession
 from app.models.document import Document, DocumentChunk, ProcessingStatus
-from app.models.folder import Folder
+from app.models.folder import Folder  # noqa: F401 - register foreign-key table
 from app.models.user import User, UserRole
 from app.schemas.retrieval import RetrievedChunk
 from app.services.gemini_provider import GeneratedAnswer

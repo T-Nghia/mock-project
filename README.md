@@ -87,7 +87,7 @@ Service `migrate` sẽ tự động:
 
 1. Chờ PostgreSQL sẵn sàng.
 2. Chạy toàn bộ Alembic migration.
-3. Tạo tài khoản Admin mặc định nếu chưa tồn tại.
+3. Tạo tài khoản Admin bootstrap nếu `ADMIN_EMAIL` và `ADMIN_PASSWORD` được cấu hình.
 4. Cho phép backend khởi động sau khi hoàn tất.
 
 Các địa chỉ sau sẽ khả dụng:
@@ -101,14 +101,10 @@ Các địa chỉ sau sẽ khả dụng:
 | PostgreSQL | `localhost:5432` |
 | Redis | `localhost:6379` |
 
-Tài khoản Admin mặc định:
-
-```text
-Email:    admin@slrms.com
-Password: Admin@123
-```
-
-Hãy đổi mật khẩu mặc định nếu triển khai ngoài môi trường phát triển. Người dùng có thể tự đăng ký tài khoản Student tại `/register`; Admin có thể tạo Teacher và quản lý tài khoản tại `/admin/users`.
+Repo không chứa mật khẩu Admin mặc định. Để tạo Admin ban đầu, đặt đồng thời
+`ADMIN_EMAIL` và `ADMIN_PASSWORD` trong `.env` trước khi chạy migrate. Nếu hai biến
+đều trống, bước seed được bỏ qua. Người dùng có thể tự đăng ký tài khoản Student tại
+`/register`; Admin có thể tạo Teacher và quản lý tài khoản tại `/admin/users`.
 
 ### 3. Dừng dự án
 

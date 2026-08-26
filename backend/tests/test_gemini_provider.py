@@ -18,7 +18,9 @@ from app.core.config import settings
 class GeminiProviderTestCase(unittest.TestCase):
     def test_text_generation_uses_configured_text_model(self):
         original_model = settings.GEMINI_TEXT_MODEL
+        original_key = settings.GEMINI_API_KEY
         settings.GEMINI_TEXT_MODEL = "configured-text-model"
+        settings.GEMINI_API_KEY = "test-key"
         captured = []
 
         class FakeResponse:
@@ -43,6 +45,7 @@ class GeminiProviderTestCase(unittest.TestCase):
                 result = gemini_provider.generate_with_gemini("prompt")
         finally:
             settings.GEMINI_TEXT_MODEL = original_model
+            settings.GEMINI_API_KEY = original_key
 
         self.assertEqual(result, "configured response")
         self.assertEqual(captured, ["configured-text-model"])
