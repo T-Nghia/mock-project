@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.chat import ChatMessage, ChatSession
@@ -78,11 +79,23 @@ class ChatRepository:
         content: str,
         source_chunks: list | None = None,
     ) -> ChatMessage:
+        # Some platforms expose a low-resolution system clock. Ensure messages
+        # within one session still receive a strictly increasing timestamp so
+        # conversation order never falls back to random UUID ordering.
+        latest_created_at = self.db.scalar(
+            select(func.max(ChatMessage.created_at)).where(ChatMessage.session_id == session_id)
+        )
+        created_at = datetime.now(timezone.utc)
+        if latest_created_at is not None:
+            if latest_created_at.tzinfo is None:
+                latest_created_at = latest_created_at.replace(tzinfo=timezone.utc)
+            created_at = max(created_at, latest_created_at + timedelta(microseconds=1))
         message = ChatMessage(
             session_id=session_id,
             role=role,
             content=content,
             source_chunks=source_chunks,
+            created_at=created_at,
         )
         self.db.add(message)
         self.db.commit()

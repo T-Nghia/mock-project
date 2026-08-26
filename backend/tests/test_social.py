@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import unittest
 import uuid
+from unittest.mock import patch
 
 os.environ["DATABASE_URL"] = "sqlite://"
 
@@ -18,6 +19,15 @@ from app.main import app
 from app.models.document import Document
 from app.models.social import Bookmark, Comment, Rating
 from app.models.user import User, UserRole
+from app.utils.text_extract import EMBEDDING_DIM
+
+
+class _FakeEmbeddingProvider:
+    def embed_batch(self, texts, *, task_type):
+        return [[0.0] * EMBEDDING_DIM for _ in texts]
+
+    def close(self):
+        pass
 
 engine = create_engine(
     "sqlite://",
@@ -43,6 +53,12 @@ class SocialAPITestCase(unittest.TestCase):
         self.previous_db_override = app.dependency_overrides.get(get_db)
         app.dependency_overrides[get_db] = override_get_db
         self.client = TestClient(app)
+
+        self._embedding_patch = patch(
+            "app.services.document_service.GeminiEmbeddingProvider",
+            return_value=_FakeEmbeddingProvider(),
+        )
+        self._embedding_patch.start()
 
         self._tmp_upload_dir = tempfile.mkdtemp(prefix="slrms_test_uploads_")
         self._original_upload_dir = settings.UPLOAD_DIR
@@ -76,6 +92,7 @@ class SocialAPITestCase(unittest.TestCase):
             app.dependency_overrides[get_db] = self.previous_db_override
         settings.UPLOAD_DIR = self._original_upload_dir
         shutil.rmtree(self._tmp_upload_dir, ignore_errors=True)
+        self._embedding_patch.stop()
 
     # ---- helpers -----------------------------------------------------
 

@@ -10,13 +10,16 @@ class GenerateSummaryTestCase(unittest.TestCase):
 
     def setUp(self):
         self.original_gemini_key = settings.GEMINI_API_KEY
+        self.original_gemini_model = settings.GEMINI_TEXT_MODEL
         self.original_openai_key = settings.OPENAI_API_KEY
         # Unit tests must be deterministic and never make a real network call.
         settings.GEMINI_API_KEY = ""
+        settings.GEMINI_TEXT_MODEL = "test-text-model"
         settings.OPENAI_API_KEY = ""
 
     def tearDown(self):
         settings.GEMINI_API_KEY = self.original_gemini_key
+        settings.GEMINI_TEXT_MODEL = self.original_gemini_model
         settings.OPENAI_API_KEY = self.original_openai_key
 
     def test_empty_text_returns_friendly_fallback(self):

@@ -12,7 +12,7 @@ os.environ["DATABASE_URL"] = "sqlite://"
 from app.core.database import Base
 from app.models.chat import ChatMessage, ChatSession
 from app.models.document import Document, ProcessingStatus
-from app.models.folder import Folder
+from app.models.folder import Folder  # noqa: F401 - register foreign-key table
 from app.models.user import User, UserRole
 from app.repositories.chat_repo import ChatRepository
 

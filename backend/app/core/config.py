@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -12,6 +13,9 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    ADMIN_EMAIL: str = ""
+    ADMIN_PASSWORD: str = ""
 
     UPLOAD_DIR: str = "/app/uploads"
     MAX_UPLOAD_SIZE_MB: int = 50
@@ -41,6 +45,27 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = "noreply@slrms.local"
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self):
+        if self.ENV.lower() != "production":
+            return self
+
+        sample_secrets = {
+            "change-me-in-env",
+            "super-secret-change-me",
+            "your-secret-key",
+            "secret",
+        }
+        if self.JWT_SECRET_KEY.strip().lower() in sample_secrets:
+            raise ValueError("JWT_SECRET_KEY must not use a sample value in production")
+        if len(self.JWT_SECRET_KEY) < 32:
+            raise ValueError("JWT_SECRET_KEY must contain at least 32 characters in production")
+        if bool(self.ADMIN_EMAIL) != bool(self.ADMIN_PASSWORD):
+            raise ValueError("ADMIN_EMAIL and ADMIN_PASSWORD must be configured together")
+        if self.ADMIN_PASSWORD and len(self.ADMIN_PASSWORD) < 12:
+            raise ValueError("ADMIN_PASSWORD must contain at least 12 characters in production")
+        return self
 
     class Config:
         env_file = ".env"

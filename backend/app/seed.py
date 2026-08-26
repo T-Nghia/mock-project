@@ -1,30 +1,33 @@
 """
-Seed a default Admin account so you can log in immediately after `docker
-compose up`. Run with:  docker compose exec backend python -m app.seed
+Optionally seed an Admin account from environment variables.
 """
 from app.core.database import SessionLocal
+from app.core.config import settings
 from app.core.security import hash_password
 from app.models.user import User, UserRole
 
-DEFAULT_ADMIN_EMAIL = "admin@slrms.com"
-DEFAULT_ADMIN_PASSWORD = "Admin@123"
-
 def run():
+    if not settings.ADMIN_EMAIL and not settings.ADMIN_PASSWORD:
+        print("ADMIN_EMAIL/ADMIN_PASSWORD are not set; skipping Admin seed.")
+        return
+    if not settings.ADMIN_EMAIL or not settings.ADMIN_PASSWORD:
+        raise RuntimeError("ADMIN_EMAIL and ADMIN_PASSWORD must be configured together")
+
     db = SessionLocal()
     try:
-        existing = db.query(User).filter(User.email == DEFAULT_ADMIN_EMAIL).first()
+        existing = db.query(User).filter(User.email == settings.ADMIN_EMAIL).first()
         if existing:
             print("Admin account already exists.")
             return
         admin = User(
             full_name="System Admin",
-            email=DEFAULT_ADMIN_EMAIL,
-            hashed_password=hash_password(DEFAULT_ADMIN_PASSWORD),
+            email=settings.ADMIN_EMAIL,
+            hashed_password=hash_password(settings.ADMIN_PASSWORD),
             role=UserRole.ADMIN,
         )
         db.add(admin)
         db.commit()
-        print(f"Created admin: {DEFAULT_ADMIN_EMAIL} / {DEFAULT_ADMIN_PASSWORD}")
+        print(f"Created admin: {settings.ADMIN_EMAIL}")
     finally:
         db.close()
 
