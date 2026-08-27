@@ -8,6 +8,8 @@ services:
       ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      REFRESH_COOKIE_SECURE: "true"
+      REFRESH_COOKIE_SAMESITE: none
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     restart: "no"
@@ -22,6 +24,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      REFRESH_COOKIE_SECURE: "true"
+      REFRESH_COOKIE_SAMESITE: none
       CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
     ports:
       - "8000:8000"

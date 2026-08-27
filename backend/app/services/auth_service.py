@@ -23,7 +23,7 @@ from app.schemas.auth import (
     ForgotPasswordRequest,
     ResetPasswordRequest,
     TeacherCreate,
-    TokenResponse,
+    TokenPair,
     UserLogin,
     UserRegister,
     UserRoleUpdate,
@@ -103,7 +103,7 @@ class AuthService:
         permissions = sorted(permission.value for permission in get_role_permissions(user.role))
         return {"role": role, "permissions": permissions}
 
-    def _issue_tokens(self, user: User) -> TokenResponse:
+    def _issue_tokens(self, user: User) -> TokenPair:
         access = create_access_token(str(user.id), user.role.value)
         refresh, jti = create_refresh_token(str(user.id), user.role.value)
         redis_client.setex(
@@ -111,9 +111,9 @@ class AuthService:
             settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
             "valid",
         ) # Hỗ trợ 1 phiên đăng nhập/user
-        return TokenResponse(access_token=access, refresh_token=refresh)
+        return TokenPair(access_token=access, refresh_token=refresh)
 
-    def login(self, data: UserLogin) -> TokenResponse:
+    def login(self, data: UserLogin) -> TokenPair:
         user = self.repo.get_by_email(data.email)
         password_ok = verify_password(data.password, user.hashed_password if user else self._DUMMY_HASH) # Tránh timing attack
         if not user or not password_ok:
@@ -124,7 +124,7 @@ class AuthService:
 
         return self._issue_tokens(user)
 
-    def refresh(self, refresh_token: str) -> TokenResponse:
+    def refresh(self, refresh_token: str) -> TokenPair:
         payload = decode_access_token(refresh_token)
         if payload is None or payload.get("type") != "refresh":
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token khong hop le hoac da het han")

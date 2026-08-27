@@ -25,7 +25,6 @@ import type {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const ACCESS_KEY = "slrms_access_token";
-const REFRESH_KEY = "slrms_refresh_token";
 
 export class ApiError extends Error {
   status: number;
@@ -41,17 +40,11 @@ export const tokenStore = {
     if (typeof window === "undefined") return null;
     return localStorage.getItem(ACCESS_KEY);
   },
-  getRefresh(): string | null {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem(REFRESH_KEY);
-  },
   set(tokens: TokenResponse) {
     localStorage.setItem(ACCESS_KEY, tokens.access_token);
-    localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
   },
   clear() {
     localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
   },
 };
 
@@ -71,13 +64,10 @@ async function parseErrorMessage(res: Response): Promise<string> {
 let refreshPromise: Promise<boolean> | null = null;
 
 async function doRefresh(): Promise<boolean> {
-  const refresh_token = tokenStore.getRefresh();
-  if (!refresh_token) return false;
   try {
     const res = await fetch(`${API_URL}/auth/refresh`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token }),
+      credentials: "include",
     });
     if (!res.ok) {
       tokenStore.clear();
@@ -127,13 +117,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     return fetch(`${API_URL}${path}${buildQuery(query)}`, {
       method,
       headers,
+      credentials: "include",
       body: isForm ? (body as FormData) : body !== undefined ? JSON.stringify(body) : undefined,
     });
   };
 
   let res = await doFetch();
 
-  if (res.status === 401 && auth && tokenStore.getRefresh()) {
+  if (res.status === 401 && auth) {
     if (!refreshPromise) {
       refreshPromise = doRefresh().finally(() => {
         refreshPromise = null;
@@ -167,6 +158,9 @@ export const authApi = {
   },
   login(data: { email: string; password: string }) {
     return request<TokenResponse>("/auth/login", { method: "POST", body: data, auth: false });
+  },
+  refresh() {
+    return doRefresh();
   },
   me() {
     return request<User>("/auth/me");

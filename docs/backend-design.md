@@ -40,7 +40,9 @@ Thành phần hạ tầng đi kèm:
 - **JWT (access + refresh token)** — `app/core/security.py`. Access token 15
   phút, refresh token 7 ngày, refresh token được lưu trong **Redis** theo key
   `refresh:{user_id}:{jti}` để hỗ trợ thu hồi (revoke) và nhiều phiên đăng nhập
-  song song trên cùng một user.
+  song song trên cùng một user. Refresh token chỉ được truyền bằng cookie
+  `HttpOnly`, được rotate qua `/auth/refresh`, và không được lưu trong
+  `localStorage` của frontend.
 - **RBAC (Role-Based Access Control)** — `app/core/permissions.py`. 3 role:
   `ADMIN`, `TEACHER`, `STUDENT`, mỗi role gắn với một tập `Permission`. Tầng API
   dùng `Depends(require_permission(...))` hoặc `Depends(require_role(...))` để
