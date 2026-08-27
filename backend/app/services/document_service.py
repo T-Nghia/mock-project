@@ -3,6 +3,7 @@ from pathlib import Path
 import time
 import uuid
 
+from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
 
 from app.core.config import settings
@@ -21,6 +22,7 @@ from app.services.gemini_embedding_provider import (
     GeminiEmbeddingProvider,
     GeminiEmbeddingProviderError,
 )
+from app.services.storage import ObjectStorage, get_storage
 from app.utils.text_chunking import chunk_blocks, count_local_tokens, chunk_text_by_tokens
 
 
@@ -44,12 +46,14 @@ class DocumentService:
         user_repo: UserRepository | None = None,
         embedding_provider: GeminiEmbeddingProvider | None = None,
         sleep=time.sleep,
+        storage: ObjectStorage | None = None,
     ):
         self.doc_repo = doc_repo
         self.tag_repo = tag_repo
         self.user_repo = user_repo
         self.embedding_provider = embedding_provider
         self.sleep = sleep
+        self.storage = storage or get_storage()
 
 
     def _get_document_or_404(self, document_id: uuid.UUID) -> Document:
@@ -67,8 +71,8 @@ class DocumentService:
 
         file_size: int | None
         try:
-            file_size = Path(document.file_path).stat().st_size
-        except OSError:
+            file_size = self.storage.size(document.file_path)
+        except (OSError, ClientError):
             # File có thể đã bị xoá khỏi ổ đĩa dù record DB vẫn còn -> vẫn trả
             # metadata, chỉ để file_size = None thay vì làm sập request.
             file_size = None
@@ -96,7 +100,7 @@ class DocumentService:
             "created_at": document.created_at,
         }
 
-    def get_file_for_download(self, document_id: uuid.UUID) -> tuple[Path, str, str]:
+    def get_file_for_download(self, document_id: uuid.UUID) -> tuple[bytes, str, str]:
         """Trả về (đường dẫn file, tên file hiển thị, media_type) để download.
 
         Kiểm tra file có thực sự tồn tại trên đĩa trước khi trả về, tránh
@@ -104,8 +108,9 @@ class DocumentService:
         """
         document = self._get_document_or_404(document_id)
 
-        file_path = Path(document.file_path)
-        if not file_path.is_file():
+        try:
+            content = self.storage.read(document.file_path)
+        except (OSError, ClientError):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="File không còn tồn tại trên hệ thống.",
@@ -122,9 +127,9 @@ class DocumentService:
             or "application/octet-stream"
         )
 
-        return file_path, download_name, media_type
+        return content, download_name, media_type
 
-    def get_file_for_view(self, document_id: uuid.UUID) -> tuple[Path, str, str]:
+    def get_file_for_view(self, document_id: uuid.UUID) -> tuple[bytes, str, str]:
         """Trả về (đường dẫn file, tên file hiển thị, media_type) để xem trực tiếp trên trình duyệt (inline).
 
         Dùng chung logic phân giải file với get_file_for_download, chỉ khác ở
@@ -149,17 +154,8 @@ class DocumentService:
                 detail="Bạn chỉ có thể xóa tài liệu do chính mình tải lên.",
             )
 
-        file_path = Path(document.file_path)
-
         self.doc_repo.delete(document)
-
-        try:
-            if file_path.is_file():
-                file_path.unlink()
-        except OSError:
-            # Record DB đã xóa thành công; lỗi xóa file vật lý không nên làm
-            # request thất bại (vd. quyền truy cập đĩa) — bỏ qua nhưng không raise.
-            pass
+        self.storage.delete(document.file_path)
 
 
     def save_upload(
@@ -180,10 +176,6 @@ class DocumentService:
                 detail=f"Định dạng file .{ext} không được hỗ trợ.",
             )
 
-        # 2. Tạo thư mục & Đọc file
-        upload_dir = Path(settings.UPLOAD_DIR)
-        upload_dir.mkdir(parents=True, exist_ok=True)
-
         content = file.file.read()
         if len(content) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
             raise HTTPException(
@@ -193,14 +185,14 @@ class DocumentService:
 
         # 3. Ghi file vào đĩa
         stored_name = f"{uuid.uuid4().hex}.{ext}"
-        file_path = upload_dir / stored_name
-        file_path.write_bytes(content)
+        content_type = file.content_type or EXTENSION_MIME_OVERRIDES.get(ext) or "application/octet-stream"
+        file_location = self.storage.save(stored_name, content, content_type)
 
         # 4. Lưu Metadata Document vào DB (Trạng thái PENDING)
         doc_title = title if title else (filename or "Untitled Document")
         document = Document(
             title=doc_title,
-            file_path=str(file_path),
+            file_path=file_location,
             file_type=ext,
             folder_id=folder_id,
             uploaded_by=uploaded_by,
@@ -227,9 +219,17 @@ class DocumentService:
         self.doc_repo.update_status(document, ProcessingStatus.PROCESSING)
 
         try:
-            text = extract_text(document.file_path, document.file_type)
-            if document.file_type.lower() in {"docx", "pdf"}:
-                blocks = extract_blocks(document.file_path, document.file_type)
+            with self.storage.materialize(
+                document.file_path,
+                suffix=f".{document.file_type}",
+            ) as local_path:
+                text = extract_text(str(local_path), document.file_type)
+                blocks = (
+                    extract_blocks(str(local_path), document.file_type)
+                    if document.file_type.lower() in {"docx", "pdf"}
+                    else None
+                )
+            if blocks is not None:
                 text = "\n\n".join(block.text for block in blocks)
                 chunks = chunk_blocks(blocks)
             else:

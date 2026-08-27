@@ -23,6 +23,12 @@ class Settings(BaseSettings):
 
     UPLOAD_DIR: str = "/app/uploads"
     MAX_UPLOAD_SIZE_MB: int = 50
+    STORAGE_BACKEND: str = "local"
+    STORAGE_BUCKET: str = ""
+    STORAGE_ENDPOINT_URL: str = ""
+    STORAGE_REGION: str = "auto"
+    STORAGE_ACCESS_KEY_ID: str = ""
+    STORAGE_SECRET_ACCESS_KEY: str = ""
     DOCUMENT_PROCESSING_MODE: str = "background"
     CELERY_BROKER_URL: str = ""
 
@@ -77,6 +83,16 @@ class Settings(BaseSettings):
             raise ValueError("REFRESH_COOKIE_SAMESITE must be 'none' in production")
         if self.DOCUMENT_PROCESSING_MODE.lower() != "celery":
             raise ValueError("DOCUMENT_PROCESSING_MODE must be 'celery' in production")
+        if self.STORAGE_BACKEND.lower() != "s3":
+            raise ValueError("STORAGE_BACKEND must be 's3' in production")
+        required_storage = {
+            "STORAGE_BUCKET": self.STORAGE_BUCKET,
+            "STORAGE_ACCESS_KEY_ID": self.STORAGE_ACCESS_KEY_ID,
+            "STORAGE_SECRET_ACCESS_KEY": self.STORAGE_SECRET_ACCESS_KEY,
+        }
+        missing = [name for name, value in required_storage.items() if not value]
+        if missing:
+            raise ValueError(f"Missing production object storage settings: {', '.join(missing)}")
         return self
 
     class Config:

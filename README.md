@@ -131,6 +131,10 @@ Các biến quan trọng trong `.env`:
 | `JWT_SECRET_KEY` | Khóa dùng để ký JWT |
 | `REFRESH_COOKIE_SECURE` | Bắt buộc `true` ở production để cookie chỉ đi qua HTTPS |
 | `REFRESH_COOKIE_SAMESITE` | Dùng `none` khi frontend và backend ở khác site |
+| `STORAGE_BACKEND` | `local` khi chạy trực tiếp; production bắt buộc `s3` |
+| `STORAGE_BUCKET` | Bucket chứa tài liệu |
+| `STORAGE_ENDPOINT_URL` | Endpoint S3-compatible của MinIO hoặc Cloudflare R2 |
+| `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` | Credential object storage |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Thời hạn access token |
 | `NEXT_PUBLIC_API_URL` | URL API được frontend sử dụng |
 | `GEMINI_API_KEY` | Khóa Gemini để bật sinh câu trả lời và embedding bằng AI |
@@ -147,6 +151,10 @@ Sau khi upload, backend đưa tác vụ trích xuất văn bản, chia đoạn, 
 tóm tắt và sinh câu hỏi gợi ý vào Celery qua Redis. Service `worker` trong Compose
 xử lý tác vụ bằng một database session riêng. Chế độ `background` chỉ còn là fallback
 cho phát triển local và unit test; production bắt buộc `DOCUMENT_PROCESSING_MODE=celery`.
+
+File tài liệu được lưu qua storage abstraction S3-compatible. Compose development
+khởi động MinIO và tự tạo bucket; production cấu hình S3/R2 qua biến môi trường.
+API và Celery worker không còn cần dùng chung filesystem uploads.
 
 Khi có `GEMINI_API_KEY`, hệ thống gọi Gemini cho các tác vụ AI đã cấu hình. Nếu không có khóa hợp lệ, ứng dụng vẫn chạy với cơ chế cục bộ để phục vụ phát triển và kiểm thử, nhưng chất lượng hiểu ngữ nghĩa sẽ thấp hơn model thật.
 

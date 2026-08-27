@@ -1,6 +1,7 @@
 import uuid
+from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile, status
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -92,12 +93,12 @@ def download_document_endpoint(
     Actor "Student, Teacher" quy định trong đặc tả.
     """
     service = _build_service(db)
-    file_path, download_name, media_type = service.get_file_for_download(document_id)
+    content, download_name, media_type = service.get_file_for_download(document_id)
 
-    return FileResponse(
-        path=file_path,
-        filename=download_name,
+    return Response(
+        content=content,
         media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename*=utf-8''{quote(download_name)}"},
     )
 
 
@@ -113,13 +114,12 @@ def view_document_endpoint(
     phải tải file xuống trước như endpoint /download.
     """
     service = _build_service(db)
-    file_path, display_name, media_type = service.get_file_for_view(document_id)
+    content, display_name, media_type = service.get_file_for_view(document_id)
 
-    return FileResponse(
-        path=file_path,
-        filename=display_name,
+    return Response(
+        content=content,
         media_type=media_type,
-        content_disposition_type="inline",
+        headers={"Content-Disposition": f"inline; filename*=utf-8''{quote(display_name)}"},
     )
 
 

@@ -25,6 +25,40 @@ services:
     ports:
       - "6379:6379"
 
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    container_name: slrms-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY_ID:-minio}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_ACCESS_KEY:-minio-secret-change-me}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-07-21T05-28-08Z
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - >-
+        mc alias set local http://minio:9000 "$${STORAGE_ACCESS_KEY_ID}" "$${STORAGE_SECRET_ACCESS_KEY}" &&
+        mc mb --ignore-existing "local/$${STORAGE_BUCKET}"
+    environment:
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-slrms-documents}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-minio}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-minio-secret-change-me}
+    depends_on:
+      minio:
+        condition: service_healthy
+
   migrate:
     build: ./backend
     container_name: slrms-migrate
@@ -62,6 +96,12 @@ services:
       GEMINI_EMBEDDING_CHUNK_OVERLAP_TOKENS: ${GEMINI_EMBEDDING_CHUNK_OVERLAP_TOKENS:-80}
       DOCUMENT_PROCESSING_MODE: ${DOCUMENT_PROCESSING_MODE:-celery}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-${REDIS_URL}}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-slrms-documents}
+      STORAGE_ENDPOINT_URL: ${STORAGE_ENDPOINT_URL:-http://minio:9000}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-minio}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-minio-secret-change-me}
     ports:
       - "8000:8000"
     volumes:
@@ -74,6 +114,8 @@ services:
         condition: service_started
       migrate:
         condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
 
   worker:
     build: ./backend
@@ -85,6 +127,12 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-${REDIS_URL}}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-slrms-documents}
+      STORAGE_ENDPOINT_URL: ${STORAGE_ENDPOINT_URL:-http://minio:9000}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-minio}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-minio-secret-change-me}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
@@ -101,6 +149,8 @@ services:
         condition: service_started
       migrate:
         condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
 
   frontend:
     build: ./frontend
@@ -116,3 +166,4 @@ services:
 volumes:
   db_data:
   uploads_data:
+  minio_data:
