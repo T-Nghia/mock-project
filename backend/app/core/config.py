@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    REFRESH_COOKIE_NAME: str = "slrms_refresh_token"
+    REFRESH_COOKIE_SECURE: bool = False
+    REFRESH_COOKIE_SAMESITE: str = "lax"
+    REFRESH_COOKIE_PATH: str = "/auth"
 
     ADMIN_EMAIL: str = ""
     ADMIN_PASSWORD: str = ""
@@ -65,6 +69,10 @@ class Settings(BaseSettings):
             raise ValueError("ADMIN_EMAIL and ADMIN_PASSWORD must be configured together")
         if self.ADMIN_PASSWORD and len(self.ADMIN_PASSWORD) < 12:
             raise ValueError("ADMIN_PASSWORD must contain at least 12 characters in production")
+        if not self.REFRESH_COOKIE_SECURE:
+            raise ValueError("REFRESH_COOKIE_SECURE must be enabled in production")
+        if self.REFRESH_COOKIE_SAMESITE.lower() != "none":
+            raise ValueError("REFRESH_COOKIE_SAMESITE must be 'none' in production")
         return self
 
     class Config:

@@ -37,11 +37,10 @@ UserLogin = LoginRequest
 
 class TokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
 
 
-class RefreshRequest(BaseModel):
+class TokenPair(TokenResponse):
     refresh_token: str
 
 
@@ -76,7 +75,6 @@ class RegisterResponse(BaseModel):
 class LoginResponse(BaseModel):
     message: str
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
     user: UserResponse
 

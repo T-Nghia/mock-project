@@ -129,6 +129,8 @@ Các biến quan trọng trong `.env`:
 | `DATABASE_URL` | Chuỗi kết nối PostgreSQL của backend |
 | `REDIS_URL` | Chuỗi kết nối Redis |
 | `JWT_SECRET_KEY` | Khóa dùng để ký JWT |
+| `REFRESH_COOKIE_SECURE` | Bắt buộc `true` ở production để cookie chỉ đi qua HTTPS |
+| `REFRESH_COOKIE_SAMESITE` | Dùng `none` khi frontend và backend ở khác site |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Thời hạn access token |
 | `NEXT_PUBLIC_API_URL` | URL API được frontend sử dụng |
 | `GEMINI_API_KEY` | Khóa Gemini để bật sinh câu trả lời và embedding bằng AI |

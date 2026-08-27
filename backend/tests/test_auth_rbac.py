@@ -28,6 +28,10 @@ class FakeRedis:
     def delete(self, key):
         self.store.pop(key, None)
 
+    def scan_iter(self, pattern):
+        prefix = pattern.removesuffix("*")
+        return [key for key in self.store if key.startswith(prefix)]
+
 
 engine = create_engine(
     "sqlite://",
@@ -110,7 +114,9 @@ class AuthRBACTestCase(unittest.TestCase):
         tokens = self.login("student@example.com")
         self.assertEqual(tokens["token_type"], "bearer")
         self.assertTrue(tokens["access_token"])
-        self.assertTrue(tokens["refresh_token"])
+        self.assertNotIn("refresh_token", tokens)
+        refresh_cookie = self.client.cookies.get("slrms_refresh_token")
+        self.assertTrue(refresh_cookie)
 
         me_response = self.client.get(
             "/auth/me",
@@ -121,10 +127,18 @@ class AuthRBACTestCase(unittest.TestCase):
 
         refresh_response = self.client.post(
             "/auth/refresh",
-            json={"refresh_token": tokens["refresh_token"]},
         )
         self.assertEqual(refresh_response.status_code, 200, refresh_response.text)
         self.assertTrue(refresh_response.json()["access_token"])
+        self.assertNotIn("refresh_token", refresh_response.json())
+        self.assertNotEqual(
+            self.client.cookies.get("slrms_refresh_token"),
+            refresh_cookie,
+        )
+
+        missing_cookie_client = TestClient(app)
+        missing_cookie_response = missing_cookie_client.post("/auth/refresh")
+        self.assertEqual(missing_cookie_response.status_code, 401)
 
         permissions_response = self.client.get(
             "/auth/me/permissions",
@@ -134,6 +148,32 @@ class AuthRBACTestCase(unittest.TestCase):
         permissions = permissions_response.json()["permissions"]
         self.assertIn("documents:read", permissions)
         self.assertNotIn("teachers:create", permissions)
+
+        logout_response = self.client.post(
+            "/auth/logout",
+            headers=self.auth_headers(tokens["access_token"]),
+        )
+        self.assertEqual(logout_response.status_code, 204)
+        self.assertIsNone(self.client.cookies.get("slrms_refresh_token"))
+
+    def test_refresh_cookie_is_httponly_and_untrusted_origin_is_rejected(self):
+        self.create_user("cookie@example.com", UserRole.STUDENT)
+        login_response = self.client.post(
+            "/auth/login",
+            json={"email": "cookie@example.com", "password": "Password@123"},
+        )
+
+        cookie_header = login_response.headers["set-cookie"].lower()
+        self.assertIn("httponly", cookie_header)
+        self.assertIn("samesite=lax", cookie_header)
+        self.assertIn("path=/auth", cookie_header)
+        self.assertNotIn("refresh_token", login_response.json())
+
+        rejected = self.client.post(
+            "/auth/refresh",
+            headers={"Origin": "https://attacker.example"},
+        )
+        self.assertEqual(rejected.status_code, 403)
 
     def test_student_and_teacher_cannot_create_teacher(self):
         self.create_user("student@example.com", UserRole.STUDENT)

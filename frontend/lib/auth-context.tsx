@@ -28,8 +28,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     if (!tokenStore.getAccess()) {
-      setUser(null);
-      return;
+      const refreshed = await authApi.refresh();
+      if (!refreshed) {
+        setUser(null);
+        return;
+      }
     }
     try {
       const me = await authApi.me();
@@ -61,7 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      if (tokenStore.getAccess()) await authApi.logout();
+      await authApi.logout();
     } catch (err) {
       if (!(err instanceof ApiError)) throw err;
     } finally {
