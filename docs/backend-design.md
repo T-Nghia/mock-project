@@ -47,9 +47,10 @@ Thành phần hạ tầng đi kèm:
   `ADMIN`, `TEACHER`, `STUDENT`, mỗi role gắn với một tập `Permission`. Tầng API
   dùng `Depends(require_permission(...))` hoặc `Depends(require_role(...))` để
   chặn ở lối vào endpoint.
-- **Background Tasks** — pipeline xử lý AI (extract text → chunk → embedding →
-  tóm tắt) chạy nền bằng `BackgroundTasks` của FastAPI ngay sau khi upload xong,
-  để endpoint upload trả kết quả ngay (status `pending`) thay vì chờ xử lý AI.
+- **Celery worker** — pipeline xử lý AI (extract text → chunk → embedding → tóm
+  tắt) được enqueue qua Redis ngay sau khi upload. Worker dùng database session riêng,
+  còn endpoint trả ngay trạng thái `pending`. `BackgroundTasks` chỉ là fallback local;
+  production bắt buộc chạy Celery.
 - **pgvector** — bảng `document_chunks.embedding` dùng kiểu `Vector(384)` để
   phục vụ tìm kiếm ngữ nghĩa cho AI Assistant (dự kiến hoàn thiện ở Sprint 2).
 - **Alembic** — quản lý schema migration, chạy tự động (`alembic upgrade head`)

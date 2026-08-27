@@ -143,7 +143,10 @@ Xem đầy đủ giá trị mẫu tại [`.env.example`](.env.example). Khi thay
 
 ## Xử lý tài liệu và AI/RAG
 
-Sau khi upload, backend dùng `BackgroundTasks` của FastAPI để trích xuất văn bản, chia đoạn, tạo embedding, tóm tắt và sinh câu hỏi gợi ý. Worker Celery trong `docker-compose.yml` hiện được tắt; Redis vẫn được khởi động để sẵn sàng cho luồng xử lý nền khi cần mở rộng.
+Sau khi upload, backend đưa tác vụ trích xuất văn bản, chia đoạn, tạo embedding,
+tóm tắt và sinh câu hỏi gợi ý vào Celery qua Redis. Service `worker` trong Compose
+xử lý tác vụ bằng một database session riêng. Chế độ `background` chỉ còn là fallback
+cho phát triển local và unit test; production bắt buộc `DOCUMENT_PROCESSING_MODE=celery`.
 
 Khi có `GEMINI_API_KEY`, hệ thống gọi Gemini cho các tác vụ AI đã cấu hình. Nếu không có khóa hợp lệ, ứng dụng vẫn chạy với cơ chế cục bộ để phục vụ phát triển và kiểm thử, nhưng chất lượng hiểu ngữ nghĩa sẽ thấp hơn model thật.
 

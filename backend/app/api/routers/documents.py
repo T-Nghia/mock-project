@@ -11,6 +11,7 @@ from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.document import DocumentMetadataResponse, DocumentResponse
 from app.services.document_service import DocumentService
+from app.services.document_dispatcher import dispatch_document_processing
 
 router = APIRouter(prefix="", tags=["Documents"])
 
@@ -53,7 +54,11 @@ def upload_document_endpoint(
     )
 
     # 4. Đẩy công việc nặng (Extract text, Chunking, Embedding) vào Background Task
-    background_tasks.add_task(service.process_document_sync, document.id)
+    dispatch_document_processing(
+        service=service,
+        document_id=document.id,
+        background_tasks=background_tasks,
+    )
 
     return document
 

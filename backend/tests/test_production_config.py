@@ -9,6 +9,7 @@ class ProductionConfigTestCase(unittest.TestCase):
     production_cookie = {
         "REFRESH_COOKIE_SECURE": True,
         "REFRESH_COOKIE_SAMESITE": "none",
+        "DOCUMENT_PROCESSING_MODE": "celery",
     }
 
     def test_rejects_sample_jwt_secret_in_production(self):
@@ -51,6 +52,17 @@ class ProductionConfigTestCase(unittest.TestCase):
                 JWT_SECRET_KEY="x" * 32,
                 REFRESH_COOKIE_SECURE=False,
                 REFRESH_COOKIE_SAMESITE="lax",
+                DOCUMENT_PROCESSING_MODE="celery",
+            )
+
+    def test_requires_celery_document_processing_in_production(self):
+        with self.assertRaises(ValidationError):
+            Settings(
+                ENV="production",
+                JWT_SECRET_KEY="x" * 32,
+                REFRESH_COOKIE_SECURE=True,
+                REFRESH_COOKIE_SAMESITE="none",
+                DOCUMENT_PROCESSING_MODE="background",
             )
 
 
