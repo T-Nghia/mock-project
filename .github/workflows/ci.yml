@@ -44,8 +44,15 @@ jobs:
       - name: Start MinIO
         working-directory: .
         run: |
-          docker compose up -d minio minio-init
-          docker compose wait minio-init
+          docker compose up -d minio
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:9000/minio/health/live; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs minio
+          exit 1
       - name: Test S3-compatible storage
         env:
           RUN_S3_INTEGRATION: "1"
