@@ -10,6 +10,7 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       REFRESH_COOKIE_SECURE: "true"
       REFRESH_COOKIE_SAMESITE: none
+      DOCUMENT_PROCESSING_MODE: celery
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     restart: "no"
@@ -26,9 +27,32 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       REFRESH_COOKIE_SECURE: "true"
       REFRESH_COOKIE_SAMESITE: none
+      DOCUMENT_PROCESSING_MODE: celery
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-${REDIS_URL}}
       CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
     ports:
       - "8000:8000"
+    volumes:
+      - uploads_data:/app/uploads
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: ./backend
+    command: celery -A app.worker.celery_app worker --loglevel=info
+    env_file: .env
+    environment:
+      ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-${REDIS_URL}}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      REFRESH_COOKIE_SECURE: "true"
+      REFRESH_COOKIE_SAMESITE: none
+      DOCUMENT_PROCESSING_MODE: celery
     volumes:
       - uploads_data:/app/uploads
     restart: unless-stopped

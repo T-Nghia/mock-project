@@ -23,6 +23,8 @@ class Settings(BaseSettings):
 
     UPLOAD_DIR: str = "/app/uploads"
     MAX_UPLOAD_SIZE_MB: int = 50
+    DOCUMENT_PROCESSING_MODE: str = "background"
+    CELERY_BROKER_URL: str = ""
 
     # Optional: set to enable real LLM-based RAG answers / embedding.
     # When empty, the AI Assistant falls back to a local keyword-search
@@ -73,6 +75,8 @@ class Settings(BaseSettings):
             raise ValueError("REFRESH_COOKIE_SECURE must be enabled in production")
         if self.REFRESH_COOKIE_SAMESITE.lower() != "none":
             raise ValueError("REFRESH_COOKIE_SAMESITE must be 'none' in production")
+        if self.DOCUMENT_PROCESSING_MODE.lower() != "celery":
+            raise ValueError("DOCUMENT_PROCESSING_MODE must be 'celery' in production")
         return self
 
     class Config:
