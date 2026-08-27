@@ -51,6 +51,9 @@ Thành phần hạ tầng đi kèm:
   tắt) được enqueue qua Redis ngay sau khi upload. Worker dùng database session riêng,
   còn endpoint trả ngay trạng thái `pending`. `BackgroundTasks` chỉ là fallback local;
   production bắt buộc chạy Celery.
+- **Object storage** — metadata giữ object key trong PostgreSQL; nội dung file nằm
+  trên MinIO khi phát triển bằng Compose và S3/Cloudflare R2-compatible ở production.
+  Worker tải object vào thư mục tạm trong lúc extract rồi tự dọn dẹp.
 - **pgvector** — bảng `document_chunks.embedding` dùng kiểu `Vector(384)` để
   phục vụ tìm kiếm ngữ nghĩa cho AI Assistant (dự kiến hoàn thiện ở Sprint 2).
 - **Alembic** — quản lý schema migration, chạy tự động (`alembic upgrade head`)

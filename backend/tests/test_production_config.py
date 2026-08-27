@@ -10,6 +10,10 @@ class ProductionConfigTestCase(unittest.TestCase):
         "REFRESH_COOKIE_SECURE": True,
         "REFRESH_COOKIE_SAMESITE": "none",
         "DOCUMENT_PROCESSING_MODE": "celery",
+        "STORAGE_BACKEND": "s3",
+        "STORAGE_BUCKET": "test-bucket",
+        "STORAGE_ACCESS_KEY_ID": "test-access-key",
+        "STORAGE_SECRET_ACCESS_KEY": "test-secret-key",
     }
 
     def test_rejects_sample_jwt_secret_in_production(self):
@@ -53,6 +57,10 @@ class ProductionConfigTestCase(unittest.TestCase):
                 REFRESH_COOKIE_SECURE=False,
                 REFRESH_COOKIE_SAMESITE="lax",
                 DOCUMENT_PROCESSING_MODE="celery",
+                STORAGE_BACKEND="s3",
+                STORAGE_BUCKET="test-bucket",
+                STORAGE_ACCESS_KEY_ID="test-access-key",
+                STORAGE_SECRET_ACCESS_KEY="test-secret-key",
             )
 
     def test_requires_celery_document_processing_in_production(self):
@@ -63,6 +71,21 @@ class ProductionConfigTestCase(unittest.TestCase):
                 REFRESH_COOKIE_SECURE=True,
                 REFRESH_COOKIE_SAMESITE="none",
                 DOCUMENT_PROCESSING_MODE="background",
+                STORAGE_BACKEND="s3",
+                STORAGE_BUCKET="test-bucket",
+                STORAGE_ACCESS_KEY_ID="test-access-key",
+                STORAGE_SECRET_ACCESS_KEY="test-secret-key",
+            )
+
+    def test_requires_s3_storage_configuration_in_production(self):
+        with self.assertRaises(ValidationError):
+            Settings(
+                ENV="production",
+                JWT_SECRET_KEY="x" * 32,
+                REFRESH_COOKIE_SECURE=True,
+                REFRESH_COOKIE_SAMESITE="none",
+                DOCUMENT_PROCESSING_MODE="celery",
+                STORAGE_BACKEND="local",
             )
 
 

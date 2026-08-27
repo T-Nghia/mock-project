@@ -41,6 +41,21 @@ jobs:
       - run: ruff check app tests alembic
       - run: alembic upgrade head
       - run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Start MinIO
+        working-directory: .
+        run: |
+          docker compose up -d minio minio-init
+          docker compose wait minio-init
+      - name: Test S3-compatible storage
+        env:
+          RUN_S3_INTEGRATION: "1"
+          STORAGE_BACKEND: s3
+          STORAGE_BUCKET: slrms-documents
+          STORAGE_ENDPOINT_URL: http://localhost:9000
+          STORAGE_REGION: us-east-1
+          STORAGE_ACCESS_KEY_ID: minio
+          STORAGE_SECRET_ACCESS_KEY: minio-secret-change-me
+        run: python -m unittest tests.integration.test_storage_s3 -v
 
   frontend:
     runs-on: ubuntu-latest
