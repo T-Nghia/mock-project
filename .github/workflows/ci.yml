@@ -39,8 +39,16 @@ jobs:
             backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
       - run: ruff check app tests alembic
+      - name: Type-check production-critical backend paths
+        run: >-
+          mypy app/core/config.py app/core/rate_limit.py app/models/document.py
+          app/repositories/document_repo.py app/services/document_service.py
+          app/services/storage.py app/services/document_dispatcher.py
+          app/tasks/document_processing.py app/worker.py
+          --ignore-missing-imports --check-untyped-defs --explicit-package-bases
       - run: alembic upgrade head
-      - run: python -m unittest discover -s tests -p "test_*.py" -v
+      - run: coverage run --source=app -m unittest discover -s tests -p "test_*.py" -v
+      - run: coverage report --fail-under=70
       - name: Start MinIO
         working-directory: .
         run: |
@@ -77,5 +85,36 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+
+  containers:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql+psycopg2://slrms:ci-password@db:5432/slrms
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ci-only-secret-that-is-at-least-32-characters
+      STORAGE_BUCKET: slrms-documents
+      STORAGE_ACCESS_KEY_ID: minio
+      STORAGE_SECRET_ACCESS_KEY: minio-secret-change-me
+      CORS_ORIGINS: '["https://staging.example.com"]'
+      NEXT_PUBLIC_API_URL: https://api.staging.example.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate merged production Compose
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+      - name: Assert private infrastructure and no source bind mounts
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --format json > /tmp/compose.json
+          python - <<'PY'
+          import json
+          config = json.load(open('/tmp/compose.json'))
+          for name in ('db', 'redis', 'minio'):
+              assert not config['services'][name].get('ports'), f'{name} exposes host ports'
+          for name in ('migrate', 'backend', 'worker'):
+              for volume in config['services'][name].get('volumes', []):
+                  assert volume.get('type') != 'bind', f'{name} contains a bind mount'
+          PY
+      - name: Build production images
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend worker frontend

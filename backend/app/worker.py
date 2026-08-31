@@ -14,4 +14,6 @@ celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],
     worker_prefetch_multiplier=1,
+    broker_transport_options={"visibility_timeout": settings.DOCUMENT_TASK_TIMEOUT_SECONDS + 300},
+    task_track_started=True,
 )

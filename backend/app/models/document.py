@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Enum, JSON
+from sqlalchemy import String, DateTime, ForeignKey, Text, Integer, Enum, JSON, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
 
@@ -34,6 +34,11 @@ class Document(Base):
     processing_status: Mapped[ProcessingStatus] = mapped_column(
         Enum(ProcessingStatus), default=ProcessingStatus.PENDING
     )
+    processing_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processing_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processing_last_error: Mapped[str | None] = mapped_column(Text)
+    processing_task_id: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -41,6 +46,7 @@ class Document(Base):
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
+    __table_args__ = (UniqueConstraint("document_id", "chunk_index", name="uq_document_chunk_index"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(

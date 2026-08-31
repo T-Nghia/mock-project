@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import tempfile
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
-from typing import ContextManager, Iterator, Protocol
+from typing import BinaryIO, ContextManager, Iterator, Protocol
 
 import boto3
 from botocore.exceptions import ClientError
@@ -13,6 +14,7 @@ from app.core.config import settings
 
 class ObjectStorage(Protocol):
     def save(self, key: str, content: bytes, content_type: str) -> str: ...
+    def save_stream(self, key: str, stream: BinaryIO, content_type: str) -> str: ...
     def read(self, location: str) -> bytes: ...
     def size(self, location: str) -> int | None: ...
     def delete(self, location: str) -> None: ...
@@ -26,6 +28,14 @@ class LocalStorage:
         path = Path(settings.UPLOAD_DIR) / key
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
+        return str(path)
+
+    def save_stream(self, key: str, stream: BinaryIO, content_type: str) -> str:
+        del content_type
+        path = Path(settings.UPLOAD_DIR) / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as destination:
+            shutil.copyfileobj(stream, destination, length=1024 * 1024)
         return str(path)
 
     def read(self, location: str) -> bytes:
@@ -66,6 +76,12 @@ class S3Storage:
             Key=key,
             Body=content,
             ContentType=content_type,
+        )
+        return key
+
+    def save_stream(self, key: str, stream: BinaryIO, content_type: str) -> str:
+        self.client.upload_fileobj(
+            stream, self.bucket, key, ExtraArgs={"ContentType": content_type}
         )
         return key
 

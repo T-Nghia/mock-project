@@ -8,6 +8,9 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql+psycopg2://slrms:slrms_password@db:5432/slrms"
     REDIS_URL: str = "redis://redis:6379/0"
+    AUTH_RATE_LIMIT_ENABLED: bool = False
+    AUTH_RATE_LIMIT_REQUESTS: int = 10
+    AUTH_RATE_LIMIT_WINDOW_SECONDS: int = 60
 
     JWT_SECRET_KEY: str = "change-me-in-env"
     JWT_ALGORITHM: str = "HS256"
@@ -31,6 +34,8 @@ class Settings(BaseSettings):
     STORAGE_SECRET_ACCESS_KEY: str = ""
     DOCUMENT_PROCESSING_MODE: str = "background"
     CELERY_BROKER_URL: str = ""
+    DOCUMENT_TASK_MAX_RETRIES: int = 5
+    DOCUMENT_TASK_TIMEOUT_SECONDS: int = 900
 
     # Optional: set to enable real LLM-based RAG answers / embedding.
     # When empty, the AI Assistant falls back to a local keyword-search
@@ -85,6 +90,8 @@ class Settings(BaseSettings):
             raise ValueError("DOCUMENT_PROCESSING_MODE must be 'celery' in production")
         if self.STORAGE_BACKEND.lower() != "s3":
             raise ValueError("STORAGE_BACKEND must be 's3' in production")
+        if not self.AUTH_RATE_LIMIT_ENABLED:
+            raise ValueError("AUTH_RATE_LIMIT_ENABLED must be enabled in production")
         required_storage = {
             "STORAGE_BUCKET": self.STORAGE_BUCKET,
             "STORAGE_ACCESS_KEY_ID": self.STORAGE_ACCESS_KEY_ID,

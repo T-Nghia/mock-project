@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.config import settings
 from app.core.permissions import Permission
+from app.core.rate_limit import auth_rate_limit
 from app.core.security import get_current_user, require_permission, require_role
 from app.schemas.auth import (
     ForgotPasswordRequest,
@@ -54,19 +55,22 @@ def _validate_cookie_origin(request: Request) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Origin khong duoc phep")
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(auth_rate_limit("register"))])
 def register(data: RegisterRequest, db: Session = Depends(get_db)):
     return AuthService(db).register(data)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse,
+             dependencies=[Depends(auth_rate_limit("login"))])
 def login(data: LoginRequest, response: Response, db: Session = Depends(get_db)):
     tokens = AuthService(db).login(data)
     _set_refresh_cookie(response, tokens.refresh_token)
     return TokenResponse(access_token=tokens.access_token)
 
 
-@router.post("/login/swagger", response_model=TokenResponse, include_in_schema=False)
+@router.post("/login/swagger", response_model=TokenResponse, include_in_schema=False,
+             dependencies=[Depends(auth_rate_limit("login"))])
 def login_swagger(
     response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(), 
@@ -79,7 +83,8 @@ def login_swagger(
     return TokenResponse(access_token=tokens.access_token)
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh", response_model=TokenResponse,
+             dependencies=[Depends(auth_rate_limit("refresh"))])
 def refresh(
     request: Request,
     response: Response,
@@ -94,7 +99,8 @@ def refresh(
     return TokenResponse(access_token=tokens.access_token)
 
 
-@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED,
+             dependencies=[Depends(auth_rate_limit("forgot-password"))])
 def forgot_password(
     data: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
@@ -104,7 +110,7 @@ def forgot_password(
     return {"Message": "Neu email ton tai trong he thong, huong dan dat lai mat khau da duoc gui."}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", dependencies=[Depends(auth_rate_limit("reset-password"))])
 def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     AuthService(db).reset_password(data)
     return {"Message": "Dat lai mat khau thanh cong."}
