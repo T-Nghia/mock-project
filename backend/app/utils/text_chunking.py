@@ -19,8 +19,8 @@ def _hard_split(text: str, max_chars: int) -> list[str]:
 
 
 def _split_words(text: str, max_chars: int) -> list[str]:
-    units = []
-    current = []
+    units: list[str] = []
+    current: list[str] = []
     current_length = 0
     for word in text.split():
         if len(word) > max_chars:
@@ -126,7 +126,7 @@ def _join_units(units: list[str]) -> str:
 def _select_overlap_units(units: list[str], overlap_chars: int) -> list[str]:
     if overlap_chars == 0:
         return []
-    selected = []
+    selected: list[str] = []
     for unit in reversed(units):
         candidate = [unit, *selected]
         if len(_join_units(candidate)) > overlap_chars:
@@ -136,8 +136,8 @@ def _select_overlap_units(units: list[str], overlap_chars: int) -> list[str]:
 
 
 def _pack_units(units: list[str], max_chars: int, overlap_chars: int) -> list[str]:
-    chunks = []
-    current = []
+    chunks: list[str] = []
+    current: list[str] = []
     for unit in units:
         candidate = _join_units([*current, unit])
         if not current or len(candidate) <= max_chars:
@@ -258,7 +258,7 @@ def chunk_blocks(
     target_tokens: int = 320,
     max_tokens: int = 450,
     overlap_tokens: int = 60,
-) -> list[str]:
+) -> list[ChunkData]:
     if target_tokens <= 0 or target_tokens > max_tokens:
         raise ValueError("target_tokens must be between 1 and max_tokens")
     if overlap_tokens < 0 or overlap_tokens >= max_tokens:

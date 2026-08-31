@@ -1,2 +1,4 @@
 -r requirements.txt
 ruff==0.12.11
+mypy==1.17.1
+coverage==7.10.4

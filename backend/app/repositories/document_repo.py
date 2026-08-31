@@ -1,5 +1,7 @@
 import uuid
-from sqlalchemy import func, select
+from datetime import datetime, timezone
+
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentChunk
@@ -43,18 +45,38 @@ class DocumentRepository:
         status,
         summary: str | None = None,
         suggested_questions: list[str] | None = None,
+        last_error: str | None = None,
     ) -> Document:
         document.processing_status = status
         if summary is not None:
             document.summary = summary
         if suggested_questions is not None:
             document.suggested_questions = suggested_questions
+        if status.value == "processing":
+            document.processing_attempts += 1
+            document.processing_started_at = datetime.now(timezone.utc)
+            document.processing_completed_at = None
+            document.processing_last_error = None
+        elif status.value == "done":
+            document.processing_completed_at = datetime.now(timezone.utc)
+            document.processing_last_error = None
+        elif status.value == "failed":
+            document.processing_completed_at = datetime.now(timezone.utc)
+            document.processing_last_error = last_error
         self.db.commit()
         self.db.refresh(document)
         return document
 
     def add_chunks(self, chunks: list[DocumentChunk]) -> None:
         self.db.add_all(chunks)
+        self.db.commit()
+
+    def delete_chunks(self, document_id: uuid.UUID) -> None:
+        self.db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
+        self.db.commit()
+
+    def set_task_id(self, document: Document, task_id: str | None) -> None:
+        document.processing_task_id = task_id
         self.db.commit()
 
     def get_chunks(self, document_id: uuid.UUID) -> list[DocumentChunk]:

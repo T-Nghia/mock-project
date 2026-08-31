@@ -24,7 +24,9 @@ import type {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-const ACCESS_KEY = "slrms_access_token";
+// Access tokens deliberately live only in memory. The HttpOnly refresh cookie
+// restores a session after a reload without exposing long-lived credentials to JS.
+let accessToken: string | null = null;
 
 export class ApiError extends Error {
   status: number;
@@ -37,14 +39,13 @@ export class ApiError extends Error {
 
 export const tokenStore = {
   getAccess(): string | null {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem(ACCESS_KEY);
+    return accessToken;
   },
   set(tokens: TokenResponse) {
-    localStorage.setItem(ACCESS_KEY, tokens.access_token);
+    accessToken = tokens.access_token;
   },
   clear() {
-    localStorage.removeItem(ACCESS_KEY);
+    accessToken = null;
   },
 };
 

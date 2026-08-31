@@ -38,6 +38,10 @@ class DocumentMetadataResponse(BaseModel):
     summary: str | None
     suggested_questions: list[str] = Field(default_factory=list)
     processing_status: ProcessingStatus
+    processing_attempts: int = 0
+    processing_started_at: datetime | None = None
+    processing_completed_at: datetime | None = None
+    processing_last_error: str | None = None
     tags: list[str]
     created_at: datetime
 

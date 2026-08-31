@@ -1,12 +1,13 @@
 import uuid
 from urllib.parse import quote
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.permissions import Permission
 from app.core.security import require_permission
+from app.models.document import ProcessingStatus
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
@@ -61,6 +62,27 @@ def upload_document_endpoint(
         background_tasks=background_tasks,
     )
 
+    return document
+
+
+@router.post("/documents/{document_id}/retry", response_model=DocumentResponse)
+def retry_document_endpoint(
+    document_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    current_user=Depends(require_permission(Permission.REVIEW_DOCUMENT)),
+    db: Session = Depends(get_db),
+):
+    service = _build_service(db)
+    document = service._get_document_or_404(document_id)
+    role = getattr(current_user.role, "value", current_user.role)
+    if document.uploaded_by != current_user.id and role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Khong co quyen retry")
+    if document.processing_status not in {ProcessingStatus.FAILED, ProcessingStatus.PENDING}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Document cannot be retried")
+    service.doc_repo.update_status(document, ProcessingStatus.PENDING)
+    dispatch_document_processing(
+        service=service, document_id=document.id, background_tasks=background_tasks
+    )
     return document
 
 

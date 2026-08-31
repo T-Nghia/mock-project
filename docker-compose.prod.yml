@@ -1,15 +1,30 @@
 services:
+  db:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    ports: !reset []
+
   migrate:
     build:
       context: ./backend
     command: sh -c "alembic upgrade head && python -m app.seed"
-    env_file: .env
-    environment:
+    env_file: !reset []
+    environment: !override
       ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       REFRESH_COOKIE_SECURE: "true"
       REFRESH_COOKIE_SAMESITE: none
+      AUTH_RATE_LIMIT_ENABLED: "true"
       DOCUMENT_PROCESSING_MODE: celery
       STORAGE_BACKEND: s3
       STORAGE_BUCKET: ${STORAGE_BUCKET:?STORAGE_BUCKET is required}
@@ -20,19 +35,21 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     restart: "no"
+    volumes: !reset []
 
   backend:
     build:
       context: ./backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    env_file: .env
-    environment:
+    env_file: !reset []
+    environment: !override
       ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       REFRESH_COOKIE_SECURE: "true"
       REFRESH_COOKIE_SAMESITE: none
+      AUTH_RATE_LIMIT_ENABLED: "true"
       DOCUMENT_PROCESSING_MODE: celery
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-${REDIS_URL}}
       STORAGE_BACKEND: s3
@@ -44,19 +61,27 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
     ports:
       - "8000:8000"
-    volumes:
+    volumes: !override
       - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8000/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
   worker:
     build:
       context: ./backend
     command: celery -A app.worker.celery_app worker --loglevel=info
-    env_file: .env
-    environment:
+    env_file: !reset []
+    environment: !override
       ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
@@ -64,6 +89,7 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       REFRESH_COOKIE_SECURE: "true"
       REFRESH_COOKIE_SAMESITE: none
+      AUTH_RATE_LIMIT_ENABLED: "true"
       DOCUMENT_PROCESSING_MODE: celery
       STORAGE_BACKEND: s3
       STORAGE_BUCKET: ${STORAGE_BUCKET:?STORAGE_BUCKET is required}
@@ -71,12 +97,20 @@ services:
       STORAGE_REGION: ${STORAGE_REGION:-auto}
       STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:?STORAGE_ACCESS_KEY_ID is required}
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:?STORAGE_SECRET_ACCESS_KEY is required}
-    volumes:
+    volumes: !override
       - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d celery@$$HOSTNAME --timeout=5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
@@ -87,9 +121,16 @@ services:
       NODE_ENV: production
     ports:
       - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   uploads_data:

@@ -14,6 +14,7 @@ class ProductionConfigTestCase(unittest.TestCase):
         "STORAGE_BUCKET": "test-bucket",
         "STORAGE_ACCESS_KEY_ID": "test-access-key",
         "STORAGE_SECRET_ACCESS_KEY": "test-secret-key",
+        "AUTH_RATE_LIMIT_ENABLED": True,
     }
 
     def test_rejects_sample_jwt_secret_in_production(self):
@@ -87,6 +88,12 @@ class ProductionConfigTestCase(unittest.TestCase):
                 DOCUMENT_PROCESSING_MODE="celery",
                 STORAGE_BACKEND="local",
             )
+
+    def test_requires_auth_rate_limiting_in_production(self):
+        config = dict(self.production_cookie)
+        config["AUTH_RATE_LIMIT_ENABLED"] = False
+        with self.assertRaises(ValidationError):
+            Settings(ENV="production", JWT_SECRET_KEY="x" * 32, **config)
 
 
 if __name__ == "__main__":

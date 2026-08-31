@@ -2,6 +2,8 @@ import mimetypes
 from pathlib import Path
 import time
 import uuid
+from collections.abc import Sequence
+from typing import Literal
 
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
@@ -23,7 +25,7 @@ from app.services.gemini_embedding_provider import (
     GeminiEmbeddingProviderError,
 )
 from app.services.storage import ObjectStorage, get_storage
-from app.utils.text_chunking import chunk_blocks, count_local_tokens, chunk_text_by_tokens
+from app.utils.text_chunking import ChunkData, chunk_blocks, count_local_tokens, chunk_text_by_tokens
 
 
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt", "pptx", "jpg", "jpeg", "png"}
@@ -35,6 +37,26 @@ EXTENSION_MIME_OVERRIDES = {
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "pdf": "application/pdf",
 }
+
+
+def _validate_file_signature(ext: str, header: bytes) -> None:
+    signatures = {
+        "pdf": (b"%PDF-",),
+        "doc": (bytes.fromhex("D0CF11E0A1B11AE1"),),
+        "docx": (b"PK\x03\x04",),
+        "pptx": (b"PK\x03\x04",),
+        "jpg": (b"\xff\xd8\xff",),
+        "jpeg": (b"\xff\xd8\xff",),
+        "png": (b"\x89PNG\r\n\x1a\n",),
+    }
+    valid = b"\x00" not in header if ext == "txt" else any(
+        header.startswith(signature) for signature in signatures.get(ext, ())
+    )
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Noi dung file khong khop voi dinh dang da khai bao.",
+        )
 
 
 class DocumentService:
@@ -96,6 +118,10 @@ class DocumentService:
             "summary": document.summary,
             "suggested_questions": document.suggested_questions or [],
             "processing_status": document.processing_status,
+            "processing_attempts": document.processing_attempts,
+            "processing_started_at": document.processing_started_at,
+            "processing_completed_at": document.processing_completed_at,
+            "processing_last_error": document.processing_last_error,
             "tags": tags,
             "created_at": document.created_at,
         }
@@ -176,17 +202,23 @@ class DocumentService:
                 detail=f"Định dạng file .{ext} không được hỗ trợ.",
             )
 
-        content = file.file.read()
-        if len(content) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        stream = file.file
+        stream.seek(0, 2)
+        file_size = stream.tell()
+        stream.seek(0)
+        if file_size > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail="File vượt quá dung lượng cho phép.",
             )
 
         # 3. Ghi file vào đĩa
+        header = stream.read(16)
+        stream.seek(0)
+        _validate_file_signature(ext, header)
         stored_name = f"{uuid.uuid4().hex}.{ext}"
         content_type = file.content_type or EXTENSION_MIME_OVERRIDES.get(ext) or "application/octet-stream"
-        file_location = self.storage.save(stored_name, content, content_type)
+        file_location = self.storage.save_stream(stored_name, stream, content_type)
 
         # 4. Lưu Metadata Document vào DB (Trạng thái PENDING)
         doc_title = title if title else (filename or "Untitled Document")
@@ -198,7 +230,11 @@ class DocumentService:
             uploaded_by=uploaded_by,
             processing_status=ProcessingStatus.PENDING,
         )
-        document = self.doc_repo.create(document)
+        try:
+            document = self.doc_repo.create(document)
+        except Exception:
+            self.storage.delete(file_location)
+            raise
 
         # 5. Gán Tags (tận dụng TagRepository)
         if tags:
@@ -216,7 +252,11 @@ class DocumentService:
         if not document:
             return
 
+        if document.processing_status == ProcessingStatus.DONE:
+            return
         self.doc_repo.update_status(document, ProcessingStatus.PROCESSING)
+        if hasattr(self.doc_repo, "delete_chunks"):
+            self.doc_repo.delete_chunks(document.id)
 
         try:
             with self.storage.materialize(
@@ -229,6 +269,7 @@ class DocumentService:
                     if document.file_type.lower() in {"docx", "pdf"}
                     else None
                 )
+            chunks: Sequence[str | ChunkData]
             if blocks is not None:
                 text = "\n\n".join(block.text for block in blocks)
                 chunks = chunk_blocks(blocks)
@@ -294,19 +335,22 @@ class DocumentService:
 
         except Exception as e:
             # Cập nhật trạng thái FAILED nếu có lỗi xử lý
-            self.doc_repo.update_status(document, ProcessingStatus.FAILED)
-            raise e
+            try:
+                self.doc_repo.update_status(document, ProcessingStatus.FAILED, last_error=str(e))
+            except TypeError:
+                self.doc_repo.update_status(document, ProcessingStatus.FAILED)
+            raise
 
 
 def build_embedding_batches(
-    chunks: list,
+    chunks: Sequence[str | ChunkData],
     max_tokens: int = 27000,
-) -> list[list[str]]:
+) -> list[list[str | ChunkData]]:
     if max_tokens <= 0:
         raise ValueError("max_tokens must be greater than zero")
 
-    batches: list[list[str]] = []
-    current: list[str] = []
+    batches: list[list[str | ChunkData]] = []
+    current: list[str | ChunkData] = []
     current_tokens = 0
     for chunk in chunks:
         chunk_text = chunk.content if hasattr(chunk, "content") else chunk
@@ -324,7 +368,7 @@ def build_embedding_batches(
     return batches
 
 
-def _iter_embedding_batches(chunks: list[str], *, max_tokens: int):
+def _iter_embedding_batches(chunks: Sequence[str | ChunkData], *, max_tokens: int):
     offset = 0
     for batch in build_embedding_batches(chunks, max_tokens=max_tokens):
         yield offset, batch
@@ -335,7 +379,7 @@ def _embed_batch_with_retries(
     provider: GeminiEmbeddingProvider,
     batch: list[str],
     *,
-    task_type: str,
+    task_type: Literal["RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY"],
     sleep,
 ) -> list[list[float]]:
     for attempt in range(3):
