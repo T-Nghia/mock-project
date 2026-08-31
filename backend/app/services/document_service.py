@@ -2,6 +2,7 @@ import mimetypes
 from pathlib import Path
 import time
 import uuid
+from collections.abc import Sequence
 from typing import Literal
 
 from botocore.exceptions import ClientError
@@ -24,7 +25,7 @@ from app.services.gemini_embedding_provider import (
     GeminiEmbeddingProviderError,
 )
 from app.services.storage import ObjectStorage, get_storage
-from app.utils.text_chunking import chunk_blocks, count_local_tokens, chunk_text_by_tokens
+from app.utils.text_chunking import ChunkData, chunk_blocks, count_local_tokens, chunk_text_by_tokens
 
 
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt", "pptx", "jpg", "jpeg", "png"}
@@ -268,6 +269,7 @@ class DocumentService:
                     if document.file_type.lower() in {"docx", "pdf"}
                     else None
                 )
+            chunks: Sequence[str | ChunkData]
             if blocks is not None:
                 text = "\n\n".join(block.text for block in blocks)
                 chunks = chunk_blocks(blocks)
@@ -341,14 +343,14 @@ class DocumentService:
 
 
 def build_embedding_batches(
-    chunks: list,
+    chunks: Sequence[str | ChunkData],
     max_tokens: int = 27000,
-) -> list[list[str]]:
+) -> list[list[str | ChunkData]]:
     if max_tokens <= 0:
         raise ValueError("max_tokens must be greater than zero")
 
-    batches: list[list[str]] = []
-    current: list[str] = []
+    batches: list[list[str | ChunkData]] = []
+    current: list[str | ChunkData] = []
     current_tokens = 0
     for chunk in chunks:
         chunk_text = chunk.content if hasattr(chunk, "content") else chunk
@@ -366,7 +368,7 @@ def build_embedding_batches(
     return batches
 
 
-def _iter_embedding_batches(chunks: list[str], *, max_tokens: int):
+def _iter_embedding_batches(chunks: Sequence[str | ChunkData], *, max_tokens: int):
     offset = 0
     for batch in build_embedding_batches(chunks, max_tokens=max_tokens):
         yield offset, batch

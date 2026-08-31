@@ -1,6 +1,8 @@
 import json
+import importlib
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 import httpx
 
@@ -9,12 +11,12 @@ from app.models.chat import ChatMessage
 from app.schemas.retrieval import RetrievedChunk
 
 try:
-    from openai import OpenAI
+    OpenAI: Any = importlib.import_module("openai").OpenAI
 except ImportError:  # pragma: no cover - dependency is optional at runtime
     OpenAI = None
 
 try:
-    import google.generativeai as genai
+    genai: Any = importlib.import_module("google.generativeai")
 except ImportError:  # pragma: no cover - dependency is optional at runtime
     genai = None
 
@@ -230,7 +232,9 @@ def generate_with_openai(
 
     try:
         client = OpenAI(api_key=api_key)
-        kwargs = {"response_format": {"type": "json_object"}} if response_json else {}
+        kwargs: dict[str, Any] = (
+            {"response_format": {"type": "json_object"}} if response_json else {}
+        )
         response = client.chat.completions.create(
             model=OPENAI_TEXT_MODEL,
             messages=messages,

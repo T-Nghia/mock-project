@@ -17,8 +17,8 @@ services:
     build:
       context: ./backend
     command: sh -c "alembic upgrade head && python -m app.seed"
-    env_file: .env
-    environment:
+    env_file: !reset []
+    environment: !override
       ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
@@ -41,8 +41,8 @@ services:
     build:
       context: ./backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    env_file: .env
-    environment:
+    env_file: !reset []
+    environment: !override
       ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
@@ -80,8 +80,8 @@ services:
     build:
       context: ./backend
     command: celery -A app.worker.celery_app worker --loglevel=info
-    env_file: .env
-    environment:
+    env_file: !reset []
+    environment: !override
       ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
