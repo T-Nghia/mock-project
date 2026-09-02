@@ -104,6 +104,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate merged production Compose
         run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+      - name: Validate merged staging HTTPS Compose
+        env:
+          APP_DOMAIN: staging.example.com
+          API_DOMAIN: api.staging.example.com
+          ACME_EMAIL: ops@example.com
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.staging.yml config --quiet
       - name: Assert private infrastructure and no source bind mounts
         run: |
           docker compose -f docker-compose.yml -f docker-compose.prod.yml config --format json > /tmp/compose.json
