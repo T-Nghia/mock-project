@@ -149,6 +149,7 @@ activemq-data/
 
 # Environments
 .env
+.env.staging
 .envrc
 .venv
 env/
@@ -218,4 +219,4 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 "*.tar" 
-"*.tar.gz" 
+"*.tar.gz"

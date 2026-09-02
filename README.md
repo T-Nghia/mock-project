@@ -213,3 +213,6 @@ Luôn kiểm tra file migration được sinh tự động trước khi áp dụ
 - Không mount source code trực tiếp vào container.
 - Dùng PostgreSQL có hỗ trợ pgvector và cấu hình lưu trữ bền vững cho uploads.
 - Chạy `alembic upgrade head` như một bước phát hành trước khi khởi động phiên bản backend mới.
+
+Staging HTTPS dùng cùng cấu hình production, với Caddy làm reverse proxy và tự
+động cấp/gia hạn chứng chỉ TLS. Xem [hướng dẫn staging HTTPS](docs/staging-https.md).
