@@ -37,18 +37,18 @@ test("deployed frontend can log in and load the dashboard", async ({ page }) => 
 
   await expect(page).toHaveURL(/\/dashboard(?:[/?#]|$)/);
   await expect(page.getByText("SLRMS", { exact: true })).toBeVisible();
-  await expect(page.locator("h2")).toContainText("Smoke Test");
 
-  expect(
-    apiResponses.some(
-      (response) => response.url() === `${apiUrl}/auth/me` && response.ok(),
-    ),
-    "frontend should successfully load the signed-in user from /auth/me",
-  ).toBe(true);
-  expect(
-    apiResponses.some(
-      (response) => response.url() === `${apiUrl}/dashboard` && response.ok(),
-    ),
-    "dashboard API request should succeed",
-  ).toBe(true);
+  const meResponse = apiResponses.find(
+    (response) => response.url() === `${apiUrl}/auth/me`,
+  );
+  expect(meResponse, "frontend should request /auth/me").toBeTruthy();
+  expect(meResponse.status(), "/auth/me should succeed").toBe(200);
+
+  const dashboardResponse = apiResponses.find(
+    (response) => response.url() === `${apiUrl}/dashboard`,
+  );
+  expect(dashboardResponse, "frontend should request /dashboard").toBeTruthy();
+  expect(dashboardResponse.status(), "/dashboard should succeed").toBe(200);
+
+  await expect(page.locator("h2")).toContainText("Smoke Test");
 });
