@@ -63,8 +63,9 @@ GitHub Environment values for `staging`:
 - Secrets: `SMOKE_EMAIL` and `SMOKE_PASSWORD`.
 
 The smoke user must already exist, be active, have the full name `Smoke Test`,
-and use the `student` role. Keep it dedicated to monitoring and do not grant it
-administrative access. A run verifies dependency readiness, loads the deployed
+and use the `teacher` role because the dashboard endpoint is not available to
+students. Keep it dedicated to monitoring and do not grant it administrative
+access. A run verifies dependency readiness, loads the deployed
 login page, signs in through the browser, fetches the current user, and renders
 the dashboard. Failed runs retain screenshots, video, trace, and an HTML report
 for seven days.
