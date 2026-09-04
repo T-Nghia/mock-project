@@ -52,3 +52,30 @@ Replace the example hostnames in the `curl` commands. If TLS issuance fails,
 inspect `caddy` logs and confirm DNS and inbound ports 80/443. Back up the
 staging database, object storage, and the `caddy_data` volume according to the
 same policy used for production.
+
+## Post-deployment smoke test
+
+The `Post-deploy smoke test` GitHub Actions workflow runs automatically after a
+successful GitHub Deployment, and can also be started manually. Configure these
+GitHub Environment values for `staging`:
+
+- Variables: `STAGING_APP_URL` and `STAGING_API_URL`.
+- Secrets: `SMOKE_EMAIL` and `SMOKE_PASSWORD`.
+
+The smoke user must already exist, be active, have the full name `Smoke Test`,
+and use the `student` role. Keep it dedicated to monitoring and do not grant it
+administrative access. A run verifies dependency readiness, loads the deployed
+login page, signs in through the browser, fetches the current user, and renders
+the dashboard. Failed runs retain screenshots, video, trace, and an HTML report
+for seven days.
+
+Run the same suite locally against any deployed environment:
+
+```bash
+cd e2e
+npm install
+npx playwright install chromium
+APP_URL=https://staging.example.com \
+API_URL=https://api.staging.example.com \
+SMOKE_EMAIL=smoke@example.com SMOKE_PASSWORD='replace-me' npm test
+```
