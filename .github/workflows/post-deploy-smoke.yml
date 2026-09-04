@@ -1,0 +1,60 @@
+name: Post-deploy smoke test
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: Frontend URL (falls back to STAGING_APP_URL variable)
+        required: false
+        type: string
+      api_url:
+        description: API URL (falls back to STAGING_API_URL variable)
+        required: false
+        type: string
+
+concurrency:
+  group: post-deploy-smoke-${{ github.event.deployment.environment || 'manual' }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ github.event.deployment.environment || 'staging' }}
+    env:
+      APP_URL: ${{ inputs.app_url || github.event.deployment_status.environment_url || vars.STAGING_APP_URL }}
+      API_URL: ${{ inputs.api_url || vars.STAGING_API_URL }}
+      SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+      SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate smoke test configuration
+        shell: bash
+        run: |
+          for name in APP_URL API_URL SMOKE_EMAIL SMOKE_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not configured"
+              exit 1
+            fi
+          done
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-deploy-playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          if-no-files-found: ignore
+          retention-days: 7
