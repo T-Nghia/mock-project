@@ -2,7 +2,9 @@
   "name": "slrms-post-deploy-e2e",
   "private": true,
   "scripts": {
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:smoke": "playwright test tests/post-deploy.spec.js",
+    "test:lifecycle": "playwright test tests/document-lifecycle.spec.js"
   },
   "devDependencies": {
     "@playwright/test": "1.55.0"

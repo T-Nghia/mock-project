@@ -34,7 +34,7 @@ export function Topbar({ title }: { title: string }) {
           {ROLE_LABEL[user.role]}
         </Badge>
         <DropdownMenu>
-          <DropdownMenuTrigger>
+          <DropdownMenuTrigger aria-label="Mở menu tài khoản">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
               {initials(user.full_name)}
             </div>

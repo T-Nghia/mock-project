@@ -51,4 +51,22 @@ test("deployed frontend can log in and load the dashboard", async ({ page }) => 
   expect(dashboardResponse.status(), "/dashboard should succeed").toBe(200);
 
   await expect(page.locator("h2")).toContainText("Smoke Test");
+
+  // The access token only lives in memory. A reload must recover the session
+  // through the HttpOnly refresh cookie before protected requests are made.
+  const refreshResponsePromise = page.waitForResponse(
+    (response) => response.url() === `${apiUrl}/auth/refresh`,
+  );
+  await page.reload();
+  const refreshResponse = await refreshResponsePromise;
+  expect(refreshResponse.status(), "session should recover after reload").toBe(200);
+  await expect(page).toHaveURL(/\/dashboard(?:[/?#]|$)/);
+
+  const logoutResponsePromise = page.waitForResponse(
+    (response) => response.url() === `${apiUrl}/auth/logout`,
+  );
+  await page.getByRole("button", { name: "Mở menu tài khoản" }).click();
+  await page.getByRole("menuitem").last().click();
+  expect((await logoutResponsePromise).status()).toBe(204);
+  await expect(page).toHaveURL(/\/login(?:[/?#]|$)/);
 });

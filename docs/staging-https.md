@@ -80,3 +80,17 @@ APP_URL=https://staging.example.com \
 API_URL=https://api.staging.example.com \
 SMOKE_EMAIL=smoke@example.com SMOKE_PASSWORD='replace-me' npm test
 ```
+
+Use `npm run test:smoke` for the short deployment gate. The slower document
+lifecycle suite runs nightly or manually through the `Staging document lifecycle
+E2E` workflow and can be invoked locally with `npm run test:lifecycle`.
+
+## Recovery drills
+
+After staging is healthy, run the operational drills documented here:
+
+- [Worker recovery drill](runbooks/worker-recovery.md)
+- [Backup and restore drill](runbooks/backup-restore.md)
+
+These drills intentionally restart the worker or create isolated restore targets;
+run them from the staging host outside an active deployment window.
