@@ -45,9 +45,9 @@ jobs:
               exit 1
             fi
           done
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
-      - run: npm test
+      - run: npm run test:smoke
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4

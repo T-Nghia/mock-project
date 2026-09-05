@@ -89,6 +89,27 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
 
+  e2e-contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Validate Playwright test discovery
+        env:
+          APP_URL: https://staging.example.com
+          API_URL: https://api.staging.example.com
+          SMOKE_EMAIL: smoke@example.com
+          SMOKE_PASSWORD: ci-placeholder-not-used
+        run: npx playwright test --list
+
   containers:
     runs-on: ubuntu-latest
     env:
