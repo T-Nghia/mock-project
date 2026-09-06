@@ -26,6 +26,14 @@ and restarts the worker, waits for recovery, checks duplicate chunk indexes, and
 deletes its document. A job that finishes before the worker is killed is reported
 as inconclusive rather than a pass.
 
+With the default Redis broker settings, an unacknowledged task can take up to the
+1,200-second visibility timeout to be delivered again. The script therefore waits
+up to 1,500 seconds after restarting the worker and prints progress every 30
+seconds. Do not deploy or manually restart services while the drill is running.
+The default fixture contains 5,000 lines to keep staging embedding usage bounded;
+override it with `RECOVERY_FIXTURE_LINES` only when the job completes too quickly
+to kill the worker.
+
 Record the date, commit SHA, elapsed recovery time, task attempts, and retained
 logs in the incident/drill record. Investigate any document left in `PROCESSING`
 after the configured timeout.
