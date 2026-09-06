@@ -39,9 +39,11 @@ class GeminiEmbeddingProviderTestCase(unittest.TestCase):
         self.assertEqual(vectors, [[0.1] * 384, [0.2] * 384])
         self.assertTrue(
             str(captured["request"].url).endswith(
-                "/v1beta/models/gemini-embedding-001:batchEmbedContents?key=test-key"
+                "/v1beta/models/gemini-embedding-001:batchEmbedContents"
             )
         )
+        self.assertNotIn("key=", str(captured["request"].url))
+        self.assertEqual(captured["request"].headers["x-goog-api-key"], "test-key")
         self.assertEqual(captured["payload"]["requests"][0]["taskType"], "RETRIEVAL_DOCUMENT")
         self.assertEqual(captured["payload"]["requests"][0]["outputDimensionality"], 384)
         self.assertEqual(

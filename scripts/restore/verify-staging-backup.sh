@@ -32,15 +32,18 @@ echo "Creating isolated verification database: $VERIFY_DB"
 
 MINIO_CONTAINER="$("${COMPOSE[@]}" ps -q minio)"
 docker cp "$BACKUP_DIR/storage/." "$MINIO_CONTAINER:$REMOTE_DIR"
-"${COMPOSE[@]}" exec -T minio mc mb --ignore-existing "local/$VERIFY_BUCKET"
-"${COMPOSE[@]}" exec -T minio mc mirror --overwrite "$REMOTE_DIR" "local/$VERIFY_BUCKET"
+"${COMPOSE[@]}" exec -T minio sh -c '
+  mc alias set slrms-verify http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null &&
+  mc mb --ignore-existing "slrms-verify/$1" &&
+  mc mirror --overwrite "$2" "slrms-verify/$1"
+' sh "$VERIFY_BUCKET" "$REMOTE_DIR"
 
 DOCUMENTS="$("${COMPOSE[@]}" exec -T db psql -U "$DB_USER" -d "$VERIFY_DB" -Atc 'SELECT count(*) FROM documents')"
 CHUNKS="$("${COMPOSE[@]}" exec -T db psql -U "$DB_USER" -d "$VERIFY_DB" -Atc 'SELECT count(*) FROM document_chunks')"
 MISSING=0
 while IFS= read -r key; do
   [[ -z "$key" ]] && continue
-  if ! "${COMPOSE[@]}" exec -T minio mc stat "local/$VERIFY_BUCKET/$key" >/dev/null 2>&1; then
+  if ! "${COMPOSE[@]}" exec -T minio mc stat "slrms-verify/$VERIFY_BUCKET/$key" >/dev/null 2>&1; then
     echo "Missing restored object: $key" >&2
     MISSING=$((MISSING + 1))
   fi
@@ -54,8 +57,9 @@ echo "Verification bucket: $VERIFY_BUCKET"
 if [[ "${CLEANUP_VERIFY:-0}" == "1" ]]; then
   echo "Removing generated verification targets..."
   "${COMPOSE[@]}" exec -T db dropdb -U "$DB_USER" "$VERIFY_DB"
-  "${COMPOSE[@]}" exec -T minio mc rb --force "local/$VERIFY_BUCKET"
+  "${COMPOSE[@]}" exec -T minio mc rb --force "slrms-verify/$VERIFY_BUCKET"
   "${COMPOSE[@]}" exec -T minio rm -rf -- "$REMOTE_DIR"
+  "${COMPOSE[@]}" exec -T minio mc alias rm slrms-verify >/dev/null 2>&1 || true
 else
   echo "Targets were retained for inspection. Set CLEANUP_VERIFY=1 on the next drill to clean automatically."
 fi

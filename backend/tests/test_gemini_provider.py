@@ -111,7 +111,8 @@ class GeminiProviderTestCase(unittest.TestCase):
         )
         request = captured["request"]
         self.assertIn("/v1beta/models/test-model:generateContent", str(request.url))
-        self.assertEqual(request.url.params["key"], "test-key")
+        self.assertNotIn("key=", str(request.url))
+        self.assertEqual(request.headers["x-goog-api-key"], "test-key")
         prompt = captured["payload"]["contents"][0]["parts"][0]["text"]
         system_instruction = captured["payload"]["systemInstruction"]["parts"][0]["text"]
         self.assertIn("Chỉ trả lời dựa trên CONTEXT", system_instruction)

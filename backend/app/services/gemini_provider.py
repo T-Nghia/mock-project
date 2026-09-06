@@ -102,7 +102,7 @@ class GeminiProvider:
         try:
             response = self.client.post(
                 url,
-                params={"key": self.api_key},
+                headers={"x-goog-api-key": self.api_key},
                 json=payload,
                 timeout=self.timeout_seconds,
             )

@@ -25,10 +25,14 @@ echo "Creating PostgreSQL dump..."
   --format=custom --no-owner --no-acl >"$OUTPUT_DIR/postgres.dump"
 
 echo "Copying object storage bucket..."
-"${COMPOSE[@]}" exec -T minio mc mirror --overwrite "local/$BUCKET" "$REMOTE_DIR"
+"${COMPOSE[@]}" exec -T minio sh -c '
+  mc alias set slrms-backup http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null &&
+  mc mirror --overwrite "slrms-backup/$1" "$2"
+' sh "$BUCKET" "$REMOTE_DIR"
 MINIO_CONTAINER="$("${COMPOSE[@]}" ps -q minio)"
 docker cp "$MINIO_CONTAINER:$REMOTE_DIR/." "$OUTPUT_DIR/storage"
 "${COMPOSE[@]}" exec -T minio rm -rf -- "$REMOTE_DIR"
+"${COMPOSE[@]}" exec -T minio mc alias rm slrms-backup >/dev/null 2>&1 || true
 
 printf 'created_at=%s\ndatabase=%s\nbucket=%s\n' "$STAMP" "$DB_NAME" "$BUCKET" >"$OUTPUT_DIR/metadata.txt"
 (
