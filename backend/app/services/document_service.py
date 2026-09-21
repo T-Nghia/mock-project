@@ -3,7 +3,6 @@ from pathlib import Path
 import time
 import uuid
 from collections.abc import Sequence
-from typing import Literal
 
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
@@ -20,12 +19,14 @@ from app.utils.text_extract import (
 )
 from app.services.summary_service import generate_summary
 from app.services.suggested_question_service import generate_suggested_questions
-from app.services.gemini_embedding_provider import (
-    GeminiEmbeddingProvider,
-    GeminiEmbeddingProviderError,
-)
+from app.services.gemini_embedding_provider import GeminiEmbeddingProvider
 from app.services.storage import ObjectStorage, get_storage
-from app.utils.text_chunking import ChunkData, chunk_blocks, count_local_tokens, chunk_text_by_tokens
+from app.utils.text_chunking import (
+    ChunkData,
+    chunk_blocks,
+    count_local_tokens,
+    chunk_text_by_tokens,
+)
 
 
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt", "pptx", "jpg", "jpeg", "png"}
@@ -49,8 +50,10 @@ def _validate_file_signature(ext: str, header: bytes) -> None:
         "jpeg": (b"\xff\xd8\xff",),
         "png": (b"\x89PNG\r\n\x1a\n",),
     }
-    valid = b"\x00" not in header if ext == "txt" else any(
-        header.startswith(signature) for signature in signatures.get(ext, ())
+    valid = (
+        b"\x00" not in header
+        if ext == "txt"
+        else any(header.startswith(signature) for signature in signatures.get(ext, ()))
     )
     if not valid:
         raise HTTPException(
@@ -60,7 +63,6 @@ def _validate_file_signature(ext: str, header: bytes) -> None:
 
 
 class DocumentService:
-
     def __init__(
         self,
         doc_repo: DocumentRepository,
@@ -76,7 +78,6 @@ class DocumentService:
         self.embedding_provider = embedding_provider
         self.sleep = sleep
         self.storage = storage or get_storage()
-
 
     def _get_document_or_404(self, document_id: uuid.UUID) -> Document:
         document = self.doc_repo.get_by_id(document_id)
@@ -145,7 +146,9 @@ class DocumentService:
         # Đặt lại tên file tải về theo title thay vì tên UUID lưu trên đĩa
         ext = document.file_type.lstrip(".")
         safe_title = document.title.strip() or "document"
-        download_name = safe_title if safe_title.lower().endswith(f".{ext}") else f"{safe_title}.{ext}"
+        download_name = (
+            safe_title if safe_title.lower().endswith(f".{ext}") else f"{safe_title}.{ext}"
+        )
 
         media_type = (
             EXTENSION_MIME_OVERRIDES.get(ext)
@@ -183,7 +186,6 @@ class DocumentService:
         self.doc_repo.delete(document)
         self.storage.delete(document.file_path)
 
-
     def save_upload(
         self,
         file: UploadFile,
@@ -217,7 +219,9 @@ class DocumentService:
         stream.seek(0)
         _validate_file_signature(ext, header)
         stored_name = f"{uuid.uuid4().hex}.{ext}"
-        content_type = file.content_type or EXTENSION_MIME_OVERRIDES.get(ext) or "application/octet-stream"
+        content_type = (
+            file.content_type or EXTENSION_MIME_OVERRIDES.get(ext) or "application/octet-stream"
+        )
         file_location = self.storage.save_stream(stored_name, stream, content_type)
 
         # 4. Lưu Metadata Document vào DB (Trạng thái PENDING)
@@ -246,7 +250,12 @@ class DocumentService:
 
         return document
 
-    def process_document_sync(self, document_id: uuid.UUID) -> None:
+    def process_document_sync(
+        self,
+        document_id: uuid.UUID,
+        *,
+        mark_failed_on_error: bool = True,
+    ) -> None:
         """Chạy ngầm (Worker task): Extract text -> Chunk -> Embed -> Summarize."""
         document = self.doc_repo.get_by_id(document_id)
         if not document:
@@ -293,14 +302,11 @@ class DocumentService:
                 )
                 for batch_index, (batch_start, batch) in enumerate(batches):
                     batch_texts = [
-                        chunk.content if hasattr(chunk, "content") else chunk
-                        for chunk in batch
+                        chunk.content if hasattr(chunk, "content") else chunk for chunk in batch
                     ]
-                    vectors = _embed_batch_with_retries(
-                        provider,
+                    vectors = provider.embed_batch(
                         batch_texts,
                         task_type="RETRIEVAL_DOCUMENT",
-                        sleep=self.sleep,
                     )
                     self.doc_repo.add_chunks(
                         [
@@ -335,10 +341,15 @@ class DocumentService:
 
         except Exception as e:
             # Cập nhật trạng thái FAILED nếu có lỗi xử lý
-            try:
-                self.doc_repo.update_status(document, ProcessingStatus.FAILED, last_error=str(e))
-            except TypeError:
-                self.doc_repo.update_status(document, ProcessingStatus.FAILED)
+            if mark_failed_on_error:
+                try:
+                    self.doc_repo.update_status(
+                        document,
+                        ProcessingStatus.FAILED,
+                        last_error=str(e),
+                    )
+                except TypeError:
+                    self.doc_repo.update_status(document, ProcessingStatus.FAILED)
             raise
 
 
@@ -373,20 +384,3 @@ def _iter_embedding_batches(chunks: Sequence[str | ChunkData], *, max_tokens: in
     for batch in build_embedding_batches(chunks, max_tokens=max_tokens):
         yield offset, batch
         offset += len(batch)
-
-
-def _embed_batch_with_retries(
-    provider: GeminiEmbeddingProvider,
-    batch: list[str],
-    *,
-    task_type: Literal["RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY"],
-    sleep,
-) -> list[list[float]]:
-    for attempt in range(3):
-        try:
-            return provider.embed_batch(batch, task_type=task_type)
-        except GeminiEmbeddingProviderError as exc:
-            if not exc.retryable or attempt == 2:
-                raise
-            sleep(2 ** (attempt + 1))
-    raise AssertionError("unreachable")
