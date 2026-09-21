@@ -15,5 +15,6 @@ celery_app.conf.update(
     accept_content=["json"],
     worker_prefetch_multiplier=1,
     broker_transport_options={"visibility_timeout": settings.DOCUMENT_TASK_TIMEOUT_SECONDS + 300},
+    broker_connection_retry_on_startup=True,
     task_track_started=True,
 )

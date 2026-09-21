@@ -4,6 +4,7 @@ import type { ProcessingStatus } from "@/lib/types";
 const CONFIG: Record<ProcessingStatus, { label: string; variant: "success" | "warning" | "destructive" | "secondary" }> = {
   pending: { label: "Chờ xử lý", variant: "secondary" },
   processing: { label: "Đang xử lý", variant: "warning" },
+  retrying: { label: "Đang thử lại", variant: "warning" },
   done: { label: "Hoàn tất", variant: "success" },
   failed: { label: "Lỗi xử lý", variant: "destructive" },
 };

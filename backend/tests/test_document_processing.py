@@ -7,6 +7,7 @@ from app.models.document import Document, DocumentChunk, ProcessingStatus
 from app.core.config import settings
 from app.services.document_service import DocumentService
 from app.services.gemini_embedding_provider import GeminiEmbeddingProviderError
+from app.services.storage import LocalStorage
 from app.utils.text_extract import EMBEDDING_DIM
 
 
@@ -22,8 +23,16 @@ class FakeDocumentRepository:
             return self.document
         return None
 
-    def update_status(self, document, status, summary=None, suggested_questions=None):
+    def update_status(
+        self,
+        document,
+        status,
+        summary=None,
+        suggested_questions=None,
+        last_error=None,
+    ):
         document.processing_status = status
+        document.processing_last_error = last_error
         if summary is not None:
             document.summary = summary
         if suggested_questions is not None:
@@ -69,7 +78,12 @@ class DocumentProcessingTestCase(unittest.TestCase):
         document, temp_dir = self.create_document_with_content("   ")
         self.addCleanup(temp_dir.cleanup)
         repo = FakeDocumentRepository(document)
-        service = DocumentService(repo, tag_repo=None, embedding_provider=FakeEmbeddingProvider())
+        service = DocumentService(
+            repo,
+            tag_repo=None,
+            embedding_provider=FakeEmbeddingProvider(),
+            storage=LocalStorage(),
+        )
 
         with self.assertRaises(ValueError):
             service.process_document_sync(document.id)
@@ -85,7 +99,12 @@ class DocumentProcessingTestCase(unittest.TestCase):
         )
         self.addCleanup(temp_dir.cleanup)
         repo = FakeDocumentRepository(document)
-        service = DocumentService(repo, tag_repo=None, embedding_provider=FakeEmbeddingProvider())
+        service = DocumentService(
+            repo,
+            tag_repo=None,
+            embedding_provider=FakeEmbeddingProvider(),
+            storage=LocalStorage(),
+        )
 
         service.process_document_sync(document.id)
 
@@ -97,25 +116,28 @@ class DocumentProcessingTestCase(unittest.TestCase):
         self.assertTrue(all(len(chunk.embedding) == EMBEDDING_DIM for chunk in repo.chunks))
         self.assertEqual(len(repo.chunk_batches), 1)
 
-    def test_retryable_batch_failure_retries_before_persisting(self):
+    def test_retryable_batch_failure_is_left_to_the_task_runner(self):
         document, temp_dir = self.create_document_with_content("Mot noi dung du dai de tao embedding.")
         self.addCleanup(temp_dir.cleanup)
         repo = FakeDocumentRepository(document)
         provider = FakeEmbeddingProvider(
-            failures=[GeminiEmbeddingProviderError("temporary", retryable=True), None]
+            failures=[GeminiEmbeddingProviderError("temporary", retryable=True)]
         )
         sleeps = []
 
-        DocumentService(
-            repo,
-            tag_repo=None,
-            embedding_provider=provider,
-            sleep=sleeps.append,
-        ).process_document_sync(document.id)
+        with self.assertRaises(GeminiEmbeddingProviderError):
+            DocumentService(
+                repo,
+                tag_repo=None,
+                embedding_provider=provider,
+                sleep=sleeps.append,
+                storage=LocalStorage(),
+            ).process_document_sync(document.id)
 
-        self.assertEqual(len(provider.calls), 2)
-        self.assertEqual(sleeps, [2])
-        self.assertEqual(len(repo.chunk_batches), 1)
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(sleeps, [])
+        self.assertEqual(len(repo.chunk_batches), 0)
+        self.assertEqual(document.processing_status, ProcessingStatus.FAILED)
 
     def test_waits_between_successful_embedding_batches_but_not_after_last(self):
         document, temp_dir = self.create_document_with_content(
@@ -155,6 +177,7 @@ class DocumentProcessingTestCase(unittest.TestCase):
             tag_repo=None,
             embedding_provider=provider,
             sleep=sleeps.append,
+            storage=LocalStorage(),
         ).process_document_sync(document.id)
 
         self.assertEqual(len(provider.calls), 3)

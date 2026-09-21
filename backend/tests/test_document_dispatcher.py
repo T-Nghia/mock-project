@@ -53,5 +53,8 @@ class DocumentDispatcherTestCase(unittest.TestCase):
 
         process_document.run(str(document_id))
 
-        service_class.return_value.process_document_sync.assert_called_once_with(document_id)
+        service_class.return_value.process_document_sync.assert_called_once_with(
+            document_id,
+            mark_failed_on_error=False,
+        )
         db.close.assert_called_once_with()

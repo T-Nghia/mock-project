@@ -52,11 +52,18 @@ class DocumentRepository:
             document.summary = summary
         if suggested_questions is not None:
             document.suggested_questions = suggested_questions
-        if status.value == "processing":
+        if status.value == "pending":
+            document.processing_started_at = None
+            document.processing_completed_at = None
+            document.processing_last_error = None
+        elif status.value == "processing":
             document.processing_attempts += 1
             document.processing_started_at = datetime.now(timezone.utc)
             document.processing_completed_at = None
             document.processing_last_error = None
+        elif status.value == "retrying":
+            document.processing_completed_at = None
+            document.processing_last_error = last_error
         elif status.value == "done":
             document.processing_completed_at = datetime.now(timezone.utc)
             document.processing_last_error = None

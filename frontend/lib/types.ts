@@ -1,6 +1,6 @@
 export type UserRole = "admin" | "teacher" | "student";
 
-export type ProcessingStatus = "pending" | "processing" | "done" | "failed";
+export type ProcessingStatus = "pending" | "processing" | "retrying" | "done" | "failed";
 
 export interface User {
   id: string;

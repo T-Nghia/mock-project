@@ -14,6 +14,7 @@ EMBEDDING_DIM = 384  # matches the local fallback embedding size; adjust if usin
 class ProcessingStatus(str, enum.Enum):
     PENDING = "pending"
     PROCESSING = "processing"
+    RETRYING = "retrying"
     DONE = "done"
     FAILED = "failed"
 
