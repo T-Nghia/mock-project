@@ -22,13 +22,11 @@ services:
     image: redis:7-alpine
     container_name: slrms-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
 
   migrate:
     build: ./backend
     container_name: slrms-migrate
-    command: alembic upgrade head
+    command: sh -c "alembic upgrade head && python -m app.seed"
     env_file: .env
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -64,28 +62,28 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  worker:
-    build: ./backend
-    container_name: slrms-worker
-    restart: unless-stopped
-    command: celery -A app.worker.celery_app worker --loglevel=info
-    env_file: .env
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-    volumes:
-      - ./backend:/app
-      - uploads_data:/app/uploads
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      migrate:
-        condition: service_completed_successfully
+  # worker:
+  #   build: ./backend
+  #   container_name: slrms-worker
+  #   restart: unless-stopped
+  #   command: celery -A app.worker.celery_app worker --loglevel=info
+  #   env_file: .env
+  #   environment:
+  #     DATABASE_URL: ${DATABASE_URL}
+  #     REDIS_URL: ${REDIS_URL}
+  #     JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  #     OPENAI_API_KEY: ${OPENAI_API_KEY}
+  #     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+  #   volumes:
+  #     - ./backend:/app
+  #     - uploads_data:/app/uploads
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_started
+  #     migrate:
+  #       condition: service_completed_successfully
 
   frontend:
     build: ./frontend
