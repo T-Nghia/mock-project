@@ -51,8 +51,8 @@ function TreeNode({
           <span className="truncate">{node.name}</span>
         </button>
         <DropdownMenu>
-          <DropdownMenuTrigger>
-            <MoreVertical className="h-3.5 w-3.5 shrink-0 opacity-0 group-hover:opacity-100" />
+          <DropdownMenuTrigger aria-label={`Thao tác với thư mục ${node.name}`} className="flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground">
+            <MoreVertical aria-hidden="true" className="h-4 w-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => onCreateChild(node)}>
