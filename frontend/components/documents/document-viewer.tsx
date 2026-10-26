@@ -18,11 +18,16 @@ export function DocumentViewer({ documentId, fileType, onDownload }: DocumentVie
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   const ext = fileType.toLowerCase().replace(/^\./, "");
   const canView = VIEWABLE_INLINE.has(ext);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
+    setObjectUrl(null);
+    setTextContent(null);
     if (!canView) {
       setLoading(false);
       return;
@@ -54,12 +59,11 @@ export function DocumentViewer({ documentId, fileType, onDownload }: DocumentVie
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentId, ext, canView]);
+  }, [documentId, ext, canView, attempt]);
 
   if (!canView) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-14 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <div className="flex h-11 w-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
           <AlertTriangle className="h-5 w-5" />
         </div>
@@ -75,16 +79,17 @@ export function DocumentViewer({ documentId, fileType, onDownload }: DocumentVie
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      <div role="status" className="flex h-full items-center justify-center gap-2 p-6 text-muted-foreground">
+        <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" /> Đang tải nội dung…
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-14 text-center">
-        <p className="text-sm text-destructive">{error}</p>
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+        <p role="alert" className="text-sm text-destructive">{error}</p>
+        <Button size="sm" onClick={() => setAttempt((value) => value + 1)}>Thử tải lại</Button>
         <Button size="sm" variant="outline" onClick={onDownload}>
           <Download className="h-4 w-4" /> Tải xuống thay thế
         </Button>
@@ -94,9 +99,9 @@ export function DocumentViewer({ documentId, fileType, onDownload }: DocumentVie
 
   if (ext === "txt" && textContent !== null) {
     return (
-      <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/30 p-4 text-sm leading-relaxed">
-        {textContent}
-      </pre>
+      <div className="h-full overflow-y-auto overscroll-contain p-4 sm:p-6">
+        <pre className="mx-auto min-h-full max-w-3xl whitespace-pre-wrap break-words rounded-lg border border-border bg-card p-5 font-sans text-sm leading-7 shadow-sm sm:p-8">{textContent}</pre>
+      </div>
     );
   }
 
@@ -105,16 +110,17 @@ export function DocumentViewer({ documentId, fileType, onDownload }: DocumentVie
       <iframe
         src={objectUrl}
         title="Xem tài liệu PDF"
-        className="h-[75vh] w-full rounded-lg border border-border"
+        className="block h-full w-full border-0 bg-muted"
       />
     );
   }
 
   if ((ext === "jpg" || ext === "jpeg" || ext === "png") && objectUrl) {
-    // eslint-disable-next-line @next/next/no-img-element
     return (
-      <div className="flex justify-center rounded-lg border border-border bg-muted/30 p-3">
-        <img src={objectUrl} alt="Xem trước tài liệu" className="max-h-[70vh] w-auto rounded-md object-contain" />
+      <div className="flex h-full items-start justify-center overflow-y-auto overscroll-contain p-4">
+        {/* Authenticated blob URLs are managed and revoked by this viewer. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={objectUrl} alt="Xem trước tài liệu" className="h-auto max-w-full rounded-md" />
       </div>
     );
   }

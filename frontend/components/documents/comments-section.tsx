@@ -83,13 +83,14 @@ export function CommentsSection({ documentId }: { documentId: string }) {
 
       <form onSubmit={handleSubmit} className="mb-4 flex items-start gap-2">
         <Textarea
+          aria-label="Bình luận về tài liệu"
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="Viết bình luận về tài liệu này…"
           className="min-h-[44px] flex-1 resize-none"
           maxLength={2000}
         />
-        <Button type="submit" size="icon" disabled={!content.trim() || submitting}>
+        <Button type="submit" size="icon" aria-label="Gửi bình luận" disabled={!content.trim() || submitting}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </Button>
       </form>
@@ -106,15 +107,15 @@ export function CommentsSection({ documentId }: { documentId: string }) {
                 {initials(c.author_name)}
               </div>
               <div className="min-w-0 flex-1 rounded-lg bg-muted/50 px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium">{c.author_name}</span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="break-words text-sm font-medium">{c.author_name}</span>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">{formatDate(c.created_at)}</span>
                     {(user?.id === c.user_id || user?.role === "admin") && (
                       <button
                         onClick={() => handleDelete(c.id)}
                         disabled={deletingId === c.id}
-                        className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                        className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-destructive disabled:opacity-50"
                         aria-label="Xoá bình luận"
                       >
                         {deletingId === c.id ? (
@@ -126,7 +127,7 @@ export function CommentsSection({ documentId }: { documentId: string }) {
                     )}
                   </div>
                 </div>
-                <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">{c.content}</p>
+                <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-foreground">{c.content}</p>
               </div>
             </li>
           ))}

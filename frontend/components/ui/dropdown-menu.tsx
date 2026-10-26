@@ -24,8 +24,13 @@ function hasMenuItems(children: React.ReactNode): boolean {
   });
 }
 
-export function DropdownMenu({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = React.useState(false);
+export function DropdownMenu({ children, open: controlledOpen, onOpenChange }: { children: React.ReactNode; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = React.useCallback((value: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(value);
+    onOpenChange?.(value);
+  }, [controlledOpen, onOpenChange]);
   const ref = React.useRef<HTMLDivElement>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const initialFocus = React.useRef<"first" | "last">("first");
@@ -39,7 +44,7 @@ export function DropdownMenu({ children }: { children: React.ReactNode }) {
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
+  }, [open, setOpen]);
 
   return (
     <DropdownContext.Provider value={{ open, setOpen, triggerRef, initialFocus, triggerId: id + "-trigger", contentId: id + "-content", popupRole }}>

@@ -48,7 +48,7 @@ export function BookmarkButton({ documentId }: { documentId: string }) {
   }
 
   return (
-    <Button variant="outline" size="sm" onClick={toggle} disabled={loading || toggling}>
+    <Button variant="outline" size="sm" onClick={toggle} aria-pressed={bookmarked} disabled={loading || toggling}>
       {toggling ? (
         <Loader2 className="h-4 w-4 animate-spin" />
       ) : (

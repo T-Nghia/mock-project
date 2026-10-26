@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 const TITLES: { match: (p: string) => boolean; title: string }[] = [
   { match: (p) => p.startsWith("/dashboard"), title: "Tổng quan" },
@@ -26,6 +27,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const documentWorkspace = /^\/documents\/[^/]+$/.test(pathname) && pathname !== "/documents/upload";
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -90,8 +92,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar role={user.role} collapsed={collapsed} onToggle={toggleSidebar} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Topbar title={pageTitle(pathname)} mobileOpen={mobileOpen} onOpenNavigation={() => setMobileOpen(true)} />
-        <main id="main-content" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 outline-none sm:p-6 lg:p-8">
-          <div className="mx-auto w-full min-w-0 max-w-[1440px]">{children}</div>
+        <main id="main-content" tabIndex={-1} className={cn("min-h-0 min-w-0 flex-1 outline-none", documentWorkspace ? "overflow-hidden p-3 sm:p-4 lg:p-5" : "overflow-y-auto overscroll-contain p-4 sm:p-6 lg:p-8")}>
+          <div className={cn("mx-auto w-full min-w-0", documentWorkspace ? "h-full" : "max-w-[1440px]")}>{children}</div>
         </main>
       </div>
       <Dialog id="mobile-navigation" open={mobileOpen} onOpenChange={setMobileOpen} variant="drawer">

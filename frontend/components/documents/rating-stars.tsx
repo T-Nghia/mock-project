@@ -62,7 +62,7 @@ export function RatingStars({ documentId }: { documentId: string }) {
   const display = hovered ?? myScore ?? 0;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="flex items-center" onMouseLeave={() => setHovered(null)}>
         {[1, 2, 3, 4, 5].map((star) => (
           <button
@@ -71,7 +71,8 @@ export function RatingStars({ documentId }: { documentId: string }) {
             disabled={submitting}
             onMouseEnter={() => setHovered(star)}
             onClick={() => handleRate(star)}
-            className="p-0.5 disabled:cursor-not-allowed"
+            className="rounded-md p-2 hover:bg-accent disabled:cursor-not-allowed"
+            aria-pressed={myScore === star}
             aria-label={`Đánh giá ${star} sao`}
           >
             <Star

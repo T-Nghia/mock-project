@@ -94,7 +94,7 @@ test("sidebar collapse persists after refresh and retains named links", async ({
   const sidebar = page.getByRole("complementary", { name: "Thanh điều hướng" });
   await expect(sidebar).toHaveCSS("width", "64px");
   await expect(page.getByRole("link", { name: "Thư viện tài liệu", exact: true })).toBeVisible();
-  await page.screenshot({ path: test.info().outputPath("sidebar-collapsed.png"), fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("sidebar-collapsed.png"), fullPage: true, animations: "disabled" });
   await page.reload();
   await expect(page.getByRole("heading", { name: /Chào mừng/ })).toBeVisible();
   await expect(sidebar).toHaveCSS("width", "64px");
@@ -115,7 +115,7 @@ test("mobile drawer traps focus, closes on Escape and restores its trigger", asy
     await page.keyboard.press("Tab");
     expect(await drawer.evaluate((element) => element.contains(document.activeElement))).toBe(true);
   }
-  await page.screenshot({ path: test.info().outputPath("mobile-drawer.png"), fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("mobile-drawer.png"), fullPage: true, animations: "disabled" });
   await page.keyboard.press("Escape");
   await expect(drawer).not.toBeVisible();
   await expect(trigger).toBeFocused();
@@ -221,46 +221,47 @@ test("folder actions remain keyboard accessible", async ({ page }) => {
   await expect(trigger).toBeFocused();
 });
 
-test("existing chat history Escape closes only the popover, then the dialog", async ({ page }) => {
+test("workspace history Escape closes the popover and restores its trigger", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await mockApi(page);
   await page.goto("/documents/doc-1");
-  await page.getByRole("button", { name: "Trò chuyện với tài liệu", exact: true }).click();
-  const chat = page.getByRole("dialog", { name: "Trò chuyện với tài liệu", exact: true });
-  await expect(chat).toBeVisible();
-  await chat.getByRole("button", { name: /Lịch sử/ }).click();
+  const chat = page.getByRole("tabpanel", { name: "Trợ lý AI", exact: true });
+  const trigger = chat.getByRole("button", { name: /Lịch sử/ });
+  await trigger.click();
   const history = page.getByRole("dialog", { name: /Lịch sử/ });
   await expect(history).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(history).not.toBeVisible();
+  await expect(trigger).toBeFocused();
   await expect(chat).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(chat).not.toBeVisible();
 });
 
 test("notifications remain reachable in a modal and after it closes", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await mockApi(page);
   await page.goto("/documents/doc-1");
-  await page.getByRole("button", { name: "Trò chuyện với tài liệu", exact: true }).click();
-  const chat = page.getByRole("dialog", { name: "Trò chuyện với tài liệu", exact: true });
-  const composer = chat.getByPlaceholder("Hỏi điều gì đó về tài liệu này…");
+  const composer = page.getByLabel("Câu hỏi cho trợ lý AI");
   await expect(composer).toBeEnabled();
   await composer.fill("Tóm tắt giúp tôi");
   await composer.press("Enter");
-  await expect(chat.getByText("Không lấy được câu trả lời", { exact: true })).toBeVisible();
+  await expect(page.getByText("Không lấy được câu trả lời", { exact: true })).toBeVisible();
   await expect(composer).toHaveValue("Tóm tắt giúp tôi");
-  await composer.press("Escape");
-  await expect(chat).not.toBeVisible();
+  await page.getByRole("button", { name: "Mở menu tài khoản" }).click();
+  await page.getByRole("menuitem", { name: "Hồ sơ của tôi" }).click();
+  const profile = page.getByRole("dialog", { name: "Hồ sơ của tôi" });
+  await expect(profile.getByText("Không lấy được câu trả lời", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(profile).not.toBeVisible();
   await expect(page.getByText("Không lấy được câu trả lời", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Đóng thông báo" }).click();
   await expect(page.getByText("Không lấy được câu trả lời", { exact: true })).not.toBeVisible();
 });
-
 for (const width of [320, 768, 1024, 1440]) {
   test("shell and account overlay fit viewport " + width, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await openDashboard(page, { longIdentity: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.screenshot({ path: test.info().outputPath("dashboard-" + width + ".png"), fullPage: true });
+    await page.screenshot({ path: test.info().outputPath("dashboard-" + width + ".png"), fullPage: true, animations: "disabled" });
     await page.getByRole("button", { name: "Mở menu tài khoản" }).click();
     const menu = page.getByRole("menu");
     const box = await menu.boundingBox();
@@ -270,6 +271,6 @@ for (const width of [320, 768, 1024, 1440]) {
     const dialog = page.getByRole("dialog", { name: "Hồ sơ của tôi" });
     await expect(dialog).toBeVisible();
     expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-    await page.screenshot({ path: test.info().outputPath("profile-" + width + ".png"), fullPage: true });
+    await page.screenshot({ path: test.info().outputPath("profile-" + width + ".png"), fullPage: true, animations: "disabled" });
   });
 }
