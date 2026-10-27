@@ -35,16 +35,18 @@ async function mockApi(page, { role = "teacher", signedIn = true, longIdentity =
       return route.fulfill({ status: 204, headers });
     }
     if (path === "/auth/me") return authenticated ? respond(user) : respond({ detail: "Unauthorized" }, 401);
+    if (path === "/dashboard" && role === "student") return respond({ detail: "Dashboard is not available for students." }, 403);
     if (path === "/dashboard") return respond({
       role,
-      summary: { total_documents: 128, total_users: role === "admin" ? 42 : null },
+      summary: { total_documents: 128, ...(role === "admin" ? { total_users: 42 } : {}) },
       charts: {
         uploads_by_day: [
           { date: "2026-10-20", count: 4 }, { date: "2026-10-21", count: 8 },
           { date: "2026-10-22", count: 5 }, { date: "2026-10-23", count: 12 },
+          { date: "2026-10-24", count: 0 }, { date: "2026-10-25", count: 2 }, { date: "2026-10-26", count: 1 },
         ],
         documents_by_folder: [{ label: "Học máy", count: 42 }, { label: "Xử lý ngôn ngữ", count: 35 }, { label: "Tài liệu tham khảo", count: 51 }],
-        users_by_role: role === "admin" ? [{ label: "Giáo viên", count: 12 }, { label: "Học sinh", count: 29 }, { label: "Quản trị viên", count: 1 }] : null,
+        ...(role === "admin" ? { users_by_role: [{ label: "teacher", count: 12 }, { label: "student", count: 29 }, { label: "admin", count: 1 }] } : {}),
       },
     });
     if (path === "/search") return respond({ items: [], total: 0, page: 1, page_size: 10, total_pages: 1 });
