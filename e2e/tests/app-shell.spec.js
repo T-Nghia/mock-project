@@ -49,8 +49,9 @@ async function mockApi(page, { role = "teacher", signedIn = true, longIdentity =
         ...(role === "admin" ? { users_by_role: [{ label: "teacher", count: 12 }, { label: "student", count: 29 }, { label: "admin", count: 1 }] } : {}),
       },
     });
-    if (path === "/search") return respond({ items: [], total: 0, page: 1, page_size: 10, total_pages: 1 });
+    if (path === "/search") return respond({ items: [], total: 0, page: 1, page_size: 10, total_pages: 0 });
     if (path === "/me/bookmarks") return respond({ items: [], total: 0, page: 1, page_size: 50 });
+    if (path === "/folders") return role === "teacher" ? respond([]) : respond({ detail: "Khong co quyen truy cap" }, 403);
     if (path === "/folders/tree") return respond([{ id: "folder-1", name: "Học máy", subject: "AI", parent_folder_id: null, owner_id: user.id, created_at: user.created_at, children: [] }]);
     if (path === "/folders/folder-1/documents") return respond([]);
     if (path === "/documents/doc-1") return respond({

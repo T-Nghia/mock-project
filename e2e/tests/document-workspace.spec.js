@@ -90,7 +90,7 @@ async function mockWorkspace(page, options = {}) {
       if (method === "DELETE") { state.sessions = state.sessions.filter((value) => value !== id); return route.fulfill({ status: 204, headers }); }
       return respond({ ...session(id), messages: state.histories[id] || [] });
     }
-    if (path === "/search") return respond({ items: [], total: 0, page: 1, page_size: 10, total_pages: 1 });
+    if (path === "/search") return respond({ items: [], total: 0, page: 1, page_size: 10, total_pages: 0 });
     state.unexpected.push({ path, method });
     return respond({ detail: "Unexpected request" }, 404);
   });

@@ -41,8 +41,9 @@ async function mockDashboard(page, options = {}) {
       if (state.status !== 200) return respond({ detail: "Dashboard unavailable" }, state.status);
       return respond(state.payload);
     }
-    if (path === "/search") return respond({ items: [], total: 0, page: 1, page_size: 10, total_pages: 1 });
+    if (path === "/search") return respond({ items: [], total: 0, page: 1, page_size: 10, total_pages: 0 });
     if (path === "/me/bookmarks") return respond({ items: [], total: 0, page: 1, page_size: 20 });
+    if (path === "/folders") return role === "teacher" ? respond([]) : respond({ detail: "Khong co quyen truy cap" }, 403);
     if (path === "/folders/tree") return respond([]);
     if (path === "/admin/users") return respond([]);
     state.unexpected.push(path);
