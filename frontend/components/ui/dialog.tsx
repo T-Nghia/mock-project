@@ -140,7 +140,7 @@ export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLD
 
 export function DialogTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
   const ctx = React.useContext(DialogContext);
-  return <h2 id={ctx?.titleId} className={cn("text-lg font-semibold leading-7 tracking-tight", className)} {...props} />;
+  return <h2 id={ctx?.titleId} className={cn("break-words text-lg font-semibold leading-7 tracking-tight", className)} {...props} />;
 }
 
 export function DialogDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {

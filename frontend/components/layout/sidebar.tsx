@@ -26,7 +26,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Quản lý tài liệu",
     items: [
       { href: "/documents/upload", label: "Tải tài liệu lên", icon: UploadCloud, roles: ["teacher", "admin"] },
-      { href: "/folders", label: "Thư mục", icon: FolderTree, roles: ["teacher", "admin"] },
+      { href: "/folders", label: "Thư mục", icon: FolderTree, roles: ["teacher"] },
     ],
   },
   {

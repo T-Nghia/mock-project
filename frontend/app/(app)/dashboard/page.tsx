@@ -62,9 +62,9 @@ export default function DashboardPage() {
     { href: "/search", label: "Thư viện tài liệu", description: "Tìm kiếm theo tiêu đề, thẻ hoặc môn học.", icon: Library },
     { href: "/bookmarks", label: "Tài liệu đã lưu", description: "Trở lại những tài liệu bạn đã đánh dấu.", icon: Bookmark },
     ...(canViewAnalytics ? [
-      { href: "/folders", label: "Thư mục", description: "Sắp xếp và quản lý tài liệu học tập.", icon: FolderTree },
       { href: "/documents/upload", label: "Tải tài liệu lên", description: "Thêm tài nguyên mới vào không gian học tập.", icon: UploadCloud },
     ] : []),
+    ...(user.role === "teacher" ? [{ href: "/folders", label: "Thư mục", description: "Sắp xếp và quản lý tài liệu học tập.", icon: FolderTree }] : []),
     ...(isAdmin ? [{ href: "/admin/users", label: "Quản lý người dùng", description: "Quản lý tài khoản và vai trò trong hệ thống.", icon: Users }] : []),
   ];
 

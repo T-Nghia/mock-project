@@ -78,14 +78,14 @@ for (const role of ["student", "teacher", "admin"]) {
     const state = await openDashboard(page, { role });
     const main = page.getByRole("main");
     const quick = page.getByRole("navigation", { name: "Truy cập nhanh" });
-    await expect(quick.getByRole("link")).toHaveCount(role === "student" ? 2 : role === "teacher" ? 4 : 5);
+    await expect(quick.getByRole("link")).toHaveCount(role === "student" ? 2 : 4);
     await expect(quick.getByRole("link", { name: /^Thư viện tài liệu/ })).toHaveAttribute("href", "/search");
     await expect(quick.getByRole("link", { name: /^Tài liệu đã lưu/ })).toHaveAttribute("href", "/bookmarks");
-    await expect(quick.getByRole("link", { name: /^Thư mục/ })).toHaveCount(role === "student" ? 0 : 1);
+    await expect(quick.getByRole("link", { name: /^Thư mục/ })).toHaveCount(role === "teacher" ? 1 : 0);
     await expect(quick.getByRole("link", { name: /^Tải tài liệu lên/ })).toHaveCount(role === "student" ? 0 : 1);
     await expect(quick.getByRole("link", { name: /^Quản lý người dùng/ })).toHaveCount(role === "admin" ? 1 : 0);
     if (role !== "student") {
-      await expect(quick.getByRole("link", { name: /^Thư mục/ })).toHaveAttribute("href", "/folders");
+      if (role === "teacher") await expect(quick.getByRole("link", { name: /^Thư mục/ })).toHaveAttribute("href", "/folders");
       await expect(quick.getByRole("link", { name: /^Tải tài liệu lên/ })).toHaveAttribute("href", "/documents/upload");
     }
     if (role === "admin") await expect(quick.getByRole("link", { name: /^Quản lý người dùng/ })).toHaveAttribute("href", "/admin/users");

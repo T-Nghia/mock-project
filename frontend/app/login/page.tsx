@@ -1,16 +1,15 @@
-"use client";
+﻿"use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { GraduationCap } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import { ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PasswordInput } from "@/components/ui/password-input";
+import { AuthFrame } from "@/components/auth/auth-frame";
+import { FormError, formError } from "@/components/auth/form-error";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -19,78 +18,22 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      await login(email, password);
-      router.replace("/dashboard");
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Đăng nhập thất bại. Vui lòng thử lại.");
-    } finally {
-      setLoading(false);
-    }
+  const busy = useRef(false);
+  async function onSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy.current) return;
+    busy.current = true; setError(null); setLoading(true);
+    try { await login(email, password); router.replace("/dashboard"); }
+    catch (err) { setError(formError(err, "Đăng nhập thất bại. Vui lòng thử lại.")); }
+    finally { busy.current = false; setLoading(false); }
   }
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="items-center text-center">
-          <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <GraduationCap className="h-6 w-6" />
-          </div>
-          <CardTitle className="text-xl">Đăng nhập SLRMS</CardTitle>
-          <CardDescription>Hệ thống quản lý tài nguyên học tập thông minh</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="ban@truong.edu.vn"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Mật khẩu</Label>
-                <Link href="/forgot-password" className="text-xs font-medium text-primary hover:underline">
-                  Quên mật khẩu?
-                </Link>
-              </div>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-            <Button type="submit" loading={loading} className="mt-1 w-full">
-              Đăng nhập
-            </Button>
-          </form>
-          <p className="mt-5 text-center text-sm text-muted-foreground">
-            Chưa có tài khoản?{" "}
-            <Link href="/register" className="font-medium text-primary hover:underline">
-              Đăng ký ngay
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  );
+  return <AuthFrame title="Đăng nhập SLRMS" description="Chào mừng trở lại. Tiếp tục hành trình học tập của bạn.">
+    <form onSubmit={onSubmit} className="space-y-5" aria-label="Đăng nhập">
+      <FormError message={error} />
+      <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" autoComplete="email" placeholder="ban@truong.edu.vn" required disabled={loading} value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+      <div className="space-y-2"><Label htmlFor="password">Mật khẩu</Label><PasswordInput id="password" autoComplete="current-password" required minLength={8} disabled={loading} value={password} onChange={(e) => setPassword(e.target.value)} /><div className="text-right"><Link href="/forgot-password" className="inline-block py-1 text-xs font-medium text-primary hover:underline">Quên mật khẩu?</Link></div></div>
+      <Button type="submit" loading={loading} className="w-full">{loading ? "Đang đăng nhập…" : "Đăng nhập"}</Button>
+    </form>
+    <p className="mt-6 border-t border-border pt-5 text-center text-sm text-muted-foreground">Chưa có tài khoản? <Link href="/register" className="font-medium text-primary hover:underline">Đăng ký ngay</Link></p>
+  </AuthFrame>;
 }
