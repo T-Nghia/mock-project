@@ -29,6 +29,7 @@ jobs:
       DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
       UPLOAD_FOLDER_TEST_DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
       JWT_SECRET_KEY: ci-only-secret
+      CI_MINIO_CONTAINER: slrms-ci-minio-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -52,26 +53,64 @@ jobs:
       - run: coverage report --fail-under=70
       - name: Start MinIO
         working-directory: .
+        shell: bash
+        timeout-minutes: 5
         run: |
-          docker compose up -d minio
-          for attempt in {1..30}; do
-            if curl --fail --silent http://localhost:9000/minio/health/live; then
+          set -euo pipefail
+          MINIO_ROOT_USER="ci-$(python -c 'import secrets; print(secrets.token_hex(8))')"
+          MINIO_ROOT_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(24))')"
+          echo "::add-mask::$MINIO_ROOT_USER"
+          echo "::add-mask::$MINIO_ROOT_PASSWORD"
+          {
+            echo "STORAGE_ACCESS_KEY_ID=$MINIO_ROOT_USER"
+            echo "STORAGE_SECRET_ACCESS_KEY=$MINIO_ROOT_PASSWORD"
+          } >> "$GITHUB_ENV"
+          export MINIO_ROOT_USER MINIO_ROOT_PASSWORD
+          docker run --detach --name "$CI_MINIO_CONTAINER" \
+            --publish 127.0.0.1:9000:9000 \
+            --tmpfs /data:rw,uid=65532,gid=65532,mode=0700,size=512m \
+            --env MINIO_ROOT_USER --env MINIO_ROOT_PASSWORD --env MINIO_BROWSER=off \
+            --cap-drop ALL --security-opt no-new-privileges \
+            cgr.dev/chainguard/minio@sha256:3b6e40c30ecd5cea627e382ff0b82ca841f58c52294578787043ee80c8ef7c82 \
+            server /data --address :9000
+          for _ in {1..30}; do
+            if curl --fail --silent --output /dev/null --connect-timeout 1 --max-time 2 \
+              http://127.0.0.1:9000/minio/health/ready; then
               exit 0
             fi
             sleep 2
           done
-          docker compose logs minio
+          echo "::error::CI MinIO did not become ready within the polling deadline"
           exit 1
       - name: Test S3-compatible storage
         env:
           RUN_S3_INTEGRATION: "1"
           STORAGE_BACKEND: s3
-          STORAGE_BUCKET: slrms-documents
-          STORAGE_ENDPOINT_URL: http://localhost:9000
+          STORAGE_BUCKET: slrms-ci-storage-${{ github.run_id }}-${{ github.run_attempt }}
+          STORAGE_ENDPOINT_URL: http://127.0.0.1:9000
           STORAGE_REGION: us-east-1
-          STORAGE_ACCESS_KEY_ID: minio
-          STORAGE_SECRET_ACCESS_KEY: minio-secret-change-me
-        run: python -m unittest tests.integration.test_storage_s3 -v
+        run: |
+          python - <<'PY'
+          import sys
+          import unittest
+
+          suite = unittest.defaultTestLoader.loadTestsFromName("tests.integration.test_storage_s3")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.testsRun == 0 or result.skipped:
+              sys.exit("S3 integration tests must pass without skips")
+          PY
+      - name: MinIO logs on failure
+        if: failure()
+        run: |
+          if docker container inspect "$CI_MINIO_CONTAINER" >/dev/null 2>&1; then
+            docker logs "$CI_MINIO_CONTAINER"
+          fi
+      - name: Clean up CI MinIO
+        if: always()
+        run: |
+          if docker container inspect "$CI_MINIO_CONTAINER" >/dev/null 2>&1; then
+            docker rm --force "$CI_MINIO_CONTAINER"
+          fi
 
   frontend:
     runs-on: ubuntu-latest
