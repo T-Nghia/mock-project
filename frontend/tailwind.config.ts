@@ -26,6 +26,7 @@ const config: Config = {
         ],
       },
       colors: {
+        sidebar: "hsl(var(--sidebar))",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -65,9 +66,15 @@ const config: Config = {
         },
       },
       borderRadius: {
+        xl: "calc(var(--radius) + 4px)",
         lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        md: "calc(var(--radius) - 4px)",
+        sm: "calc(var(--radius) - 6px)",
+      },
+      boxShadow: {
+        sm: "0 1px 2px rgb(15 23 42 / 0.04)",
+        panel: "0 1px 3px rgb(15 23 42 / 0.04), 0 1px 2px rgb(15 23 42 / 0.02)",
+        popover: "0 12px 32px -8px rgb(15 23 42 / 0.16), 0 2px 6px rgb(15 23 42 / 0.04)",
       },
       keyframes: {
         "fade-in": { from: { opacity: "0" }, to: { opacity: "1" } },

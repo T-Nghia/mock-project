@@ -1,230 +1,116 @@
-"use client";
+﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { FileText, FolderPlus, MoveRight } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { FolderPlus, FileText, FolderOpen } from "lucide-react";
 import { foldersApi } from "@/lib/api";
-import { ApiError } from "@/lib/api";
 import type { Folder, FolderDocument, FolderTreeNode } from "@/lib/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/lib/toast-context";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { PageLoading, PageState } from "@/components/ui/page-state";
+import { ConfirmActionDialog } from "@/components/ui/confirm-action-dialog";
 import { FolderTree } from "@/components/folders/folder-tree";
 import { FolderFormDialog } from "@/components/folders/folder-form-dialog";
 import { StatusBadge } from "@/components/documents/status-badge";
 import { formatDate } from "@/lib/utils";
-import { useToast } from "@/lib/toast-context";
 
 function flatten(nodes: FolderTreeNode[]): FolderTreeNode[] {
-  return nodes.flatMap((n) => [n, ...flatten(n.children)]);
+  return nodes.flatMap((node) => [node, ...flatten(node.children)]);
 }
-
 export default function FoldersPage() {
+  const { user } = useAuth();
+  // Presentation follows the endpoint's teacher-only contract; auth guards stay unchanged.
+  if (user?.role !== "teacher") return <PageState title="Thư mục dành cho giáo viên" description="Tài khoản của bạn không có quyền quản lý thư mục. Bạn vẫn có thể khám phá tài liệu trong thư viện."><Link href="/search" className={buttonVariants()}>Mở thư viện</Link></PageState>;
+  return <FolderManager />;
+}
+function FolderManager() {
   const { toast } = useToast();
   const [tree, setTree] = useState<FolderTreeNode[]>([]);
   const [loadingTree, setLoadingTree] = useState(true);
-  const [selected, setSelected] = useState<FolderTreeNode | null>(null);
-  const [docs, setDocs] = useState<FolderDocument[]>([]);
+  const [treeError, setTreeError] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [documents, setDocuments] = useState<{ id: string; items: FolderDocument[] } | null>(null);
   const [loadingDocs, setLoadingDocs] = useState(false);
-
+  const [docsError, setDocsError] = useState(false);
+  const [docsAttempt, setDocsAttempt] = useState(0);
+  const [moving, setMoving] = useState<string | null>(null);
+  const moveLock = useRef(false);
+  const treeRequest = useRef(0);
+  const [deleteTarget, setDeleteTarget] = useState<FolderTreeNode | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogMode, setDialogMode] = useState<"create" | "edit">("create");
-  const [dialogParent, setDialogParent] = useState<FolderTreeNode | null>(null);
-  const [dialogInitial, setDialogInitial] = useState<Folder | null>(null);
+  const [mode, setMode] = useState<"create" | "edit">("create");
+  const [parent, setParent] = useState<FolderTreeNode | null>(null);
+  const [initial, setInitial] = useState<Folder | null>(null);
+  const allFolders = flatten(tree);
+  const selected = allFolders.find((node) => node.id === selectedId);
 
   const loadTree = useCallback(async () => {
-    setLoadingTree(true);
+    const ticket = ++treeRequest.current;
+    setLoadingTree(true); setTreeError(false);
     try {
       const data = await foldersApi.tree();
+      if (ticket !== treeRequest.current) return;
       setTree(data);
-    } catch (err) {
-      toast({ title: "Không tải được thư mục", description: err instanceof ApiError ? err.message : undefined, variant: "error" });
-    } finally {
-      setLoadingTree(false);
-    }
-  }, [toast]);
-
+      setSelectedId((id) => flatten(data).some((node) => node.id === id) ? id : null);
+    } catch { if (ticket === treeRequest.current) setTreeError(true); }
+    finally { if (ticket === treeRequest.current) setLoadingTree(false); }
+  }, []);
+  useEffect(() => { void loadTree(); return () => { treeRequest.current += 1; }; }, [loadTree]);
   useEffect(() => {
-    loadTree();
-  }, [loadTree]);
-
-  const loadDocs = useCallback(
-    async (folderId: string) => {
-      setLoadingDocs(true);
-      try {
-        const data = await foldersApi.documents(folderId, false);
-        setDocs(data);
-      } catch (err) {
-        toast({ title: "Không tải được tài liệu", description: err instanceof ApiError ? err.message : undefined, variant: "error" });
-      } finally {
-        setLoadingDocs(false);
-      }
-    },
-    [toast]
-  );
-
-  useEffect(() => {
-    if (selected) loadDocs(selected.id);
-    else setDocs([]);
-  }, [selected, loadDocs]);
-
-  function openCreate(parent: FolderTreeNode | null) {
-    setDialogMode("create");
-    setDialogParent(parent);
-    setDialogInitial(null);
-    setDialogOpen(true);
+    if (!selectedId) return;
+    let cancelled = false;
+    setLoadingDocs(true); setDocsError(false);
+    foldersApi.documents(selectedId, false)
+      .then((items) => { if (!cancelled) setDocuments({ id: selectedId, items }); })
+      .catch(() => { if (!cancelled) setDocsError(true); })
+      .finally(() => { if (!cancelled) setLoadingDocs(false); });
+    return () => { cancelled = true; };
+  }, [selectedId, docsAttempt]);
+  function create(node: FolderTreeNode | null) { setMode("create"); setParent(node); setInitial(null); setDialogOpen(true); }
+  function edit(node: FolderTreeNode) { setMode("edit"); setParent(null); setInitial(node); setDialogOpen(true); }
+  async function save(data: { name: string; subject: string | null }) {
+    if (mode === "create") await foldersApi.create({ ...data, parent_folder_id: parent?.id ?? null });
+    else if (initial) await foldersApi.update(initial.id, data);
+    toast({ title: mode === "create" ? "Đã tạo thư mục" : "Đã cập nhật thư mục", variant: "success" });
+    await loadTree();
   }
-
-  function openEdit(node: FolderTreeNode) {
-    setDialogMode("edit");
-    setDialogParent(null);
-    setDialogInitial(node);
-    setDialogOpen(true);
+  async function remove() {
+    if (!deleteTarget) return;
+    await foldersApi.remove(deleteTarget.id);
+    const removed = new Set(flatten([deleteTarget]).map((node) => node.id));
+    if (selectedId && removed.has(selectedId)) setSelectedId(null);
+    // Prune only after server confirmation; a refresh failure must not resurrect a deleted node.
+    const prune = (nodes: FolderTreeNode[]): FolderTreeNode[] => nodes.filter((node) => !removed.has(node.id)).map((node) => ({ ...node, children: prune(node.children) }));
+    setTree((previous) => prune(previous));
+    toast({ title: "Đã xoá thư mục", variant: "success" });
+    await loadTree();
   }
-
-  async function handleSubmit(data: { name: string; subject: string | null }) {
+  async function move(documentId: string, destination: string) {
+    if (moveLock.current || destination === selectedId) return;
+    moveLock.current = true; setMoving(documentId);
     try {
-      if (dialogMode === "create") {
-        await foldersApi.create({ name: data.name, subject: data.subject, parent_folder_id: dialogParent?.id ?? null });
-        toast({ title: "Đã tạo thư mục", variant: "success" });
-      } else if (dialogInitial) {
-        await foldersApi.update(dialogInitial.id, { name: data.name, subject: data.subject });
-        toast({ title: "Đã cập nhật thư mục", variant: "success" });
-      }
-      await loadTree();
-    } catch (err) {
-      toast({ title: "Thao tác thất bại", description: err instanceof ApiError ? err.message : undefined, variant: "error" });
-    }
-  }
-
-  async function handleDelete(node: FolderTreeNode) {
-    if (!confirm(`Xoá thư mục "${node.name}" và toàn bộ thư mục con? Tài liệu bên trong sẽ được giữ lại.`)) return;
-    try {
-      await foldersApi.remove(node.id);
-      toast({ title: "Đã xoá thư mục", variant: "success" });
-      if (selected?.id === node.id) setSelected(null);
-      await loadTree();
-    } catch (err) {
-      toast({ title: "Xoá thất bại", description: err instanceof ApiError ? err.message : undefined, variant: "error" });
-    }
-  }
-
-  async function handleMove(documentId: string, folderId: string) {
-    try {
-      await foldersApi.moveDocument(documentId, folderId || null);
+      await foldersApi.moveDocument(documentId, destination || null);
+      setDocuments((previous) => previous ? { ...previous, items: previous.items.filter((doc) => doc.id !== documentId) } : previous);
       toast({ title: "Đã chuyển tài liệu", variant: "success" });
-      if (selected) loadDocs(selected.id);
-    } catch (err) {
-      toast({ title: "Chuyển thất bại", description: err instanceof ApiError ? err.message : undefined, variant: "error" });
-    }
+    } catch { toast({ title: "Chuyển thất bại", description: "Tài liệu vẫn ở thư mục hiện tại. Vui lòng thử lại.", variant: "error" }); }
+    finally { moveLock.current = false; setMoving(null); }
   }
-
-  const allFolders = flatten(tree);
-
-  return (
-    <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
-      <Card className="h-fit">
-        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-sm">Cây thư mục</CardTitle>
-          <Button size="sm" variant="ghost" onClick={() => openCreate(null)}>
-            <FolderPlus className="h-4 w-4" />
-          </Button>
-        </CardHeader>
-        <CardContent className="p-2 pt-0">
-          {loadingTree ? (
-            <div className="flex flex-col gap-2 p-2">
-              <Skeleton className="h-6" />
-              <Skeleton className="h-6" />
-              <Skeleton className="h-6" />
-            </div>
-          ) : (
-            <FolderTree
-              nodes={tree}
-              selectedId={selected?.id ?? null}
-              onSelect={setSelected}
-              onCreateChild={openCreate}
-              onRename={openEdit}
-              onDelete={handleDelete}
-            />
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{selected ? selected.name : "Chọn một thư mục"}</CardTitle>
-          {selected?.subject && <p className="text-sm text-muted-foreground">Môn học: {selected.subject}</p>}
-        </CardHeader>
-        <CardContent>
-          {!selected ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              Chọn một thư mục bên trái để xem tài liệu bên trong.
-            </p>
-          ) : loadingDocs ? (
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-10" />
-              <Skeleton className="h-10" />
-              <Skeleton className="h-10" />
-            </div>
-          ) : docs.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Thư mục này chưa có tài liệu.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tên tài liệu</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead>Ngày tạo</TableHead>
-                  <TableHead className="w-56">Chuyển tới</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {docs.map((doc) => (
-                  <TableRow key={doc.id}>
-                    <TableCell className="flex items-center gap-2 font-medium">
-                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <a href={`/documents/${doc.id}`} className="hover:underline">
-                        {doc.title}
-                      </a>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={doc.processing_status} />
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDate(doc.created_at)}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Select
-                          defaultValue={selected.id}
-                          onChange={(e) => handleMove(doc.id, e.target.value)}
-                          className="h-8 text-xs"
-                        >
-                          <option value="">— Ngoài thư mục —</option>
-                          {allFolders.map((f) => (
-                            <option key={f.id} value={f.id}>
-                              {f.name}
-                            </option>
-                          ))}
-                        </Select>
-                        <MoveRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      <FolderFormDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        mode={dialogMode}
-        parentName={dialogParent?.name}
-        initial={dialogInitial}
-        onSubmit={handleSubmit}
-      />
+  const docs = documents?.id === selectedId ? documents.items : [];
+  return <div className="space-y-6">
+    <header className="flex flex-wrap items-start justify-between gap-4"><div><p className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Sắp xếp kiến thức</p><h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Thư mục của bạn</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Tổ chức tài liệu theo môn học và những chủ đề bạn quan tâm.</p></div><Button onClick={() => create(null)}><FolderPlus aria-hidden="true" className="h-4 w-4" />Tạo thư mục</Button></header>
+    <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+      <Card className="min-w-0 p-3"><div className="flex items-center gap-2 border-b border-border px-2 pb-3"><FolderOpen aria-hidden="true" className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Cây thư mục</h3><span className="ml-auto text-xs text-muted-foreground">{allFolders.length}</span></div><div className="mt-3">{loadingTree && !tree.length ? <PageLoading label="Đang tải thư mục" /> : <>{treeError && <PageState title="Không tải được thư mục" description="Danh sách trước đó được giữ lại nếu có." retry={() => void loadTree()} />}{!treeError && !tree.length ? <PageState title="Chưa có thư mục nào" description="Tạo thư mục đầu tiên để bắt đầu sắp xếp tài liệu."><Button variant="outline" onClick={() => create(null)}>Tạo thư mục đầu tiên</Button></PageState> : <FolderTree nodes={tree} selectedId={selectedId} onSelect={(node) => setSelectedId(node.id)} onCreateChild={create} onRename={edit} onDelete={setDeleteTarget} />}{loadingTree && <p role="status" className="p-2 text-xs text-muted-foreground">Đang cập nhật thư mục…</p>}</>}</div></Card>
+      <section aria-label="Tài liệu trong thư mục" className="min-w-0 space-y-4">
+        {!selected ? <PageState title="Chọn một thư mục" description="Chọn thư mục trong cây để xem và sắp xếp tài liệu bên trong." /> : <>
+          <div className="rounded-xl border border-border bg-card p-5"><h3 className="break-words text-lg font-semibold">{selected.name}</h3>{selected.subject && <p className="mt-1 break-words text-sm text-muted-foreground">Môn học: {selected.subject}</p>}<p className="mt-3 text-xs leading-5 text-muted-foreground">Tài liệu trực tiếp trong thư mục này. Chọn thư mục con để xem nội dung của thư mục con.</p></div>
+          {loadingDocs || (!docsError && documents?.id !== selectedId) ? <PageLoading label="Đang tải tài liệu trong thư mục" /> : docsError ? <PageState title="Không tải được tài liệu" description="Vui lòng thử lại. Không có tài liệu nào bị thay đổi." retry={() => setDocsAttempt((v) => v + 1)} /> : !docs.length ? <PageState title="Thư mục này chưa có tài liệu" description="Bạn có thể chọn thư mục này khi tải tài liệu lên."><Link href="/documents/upload" className={buttonVariants({ variant: "outline" })}>Tải tài liệu lên</Link></PageState> : <ul className="space-y-3">{docs.map((doc) => <li key={doc.id} className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5"><div className="flex gap-3"><FileText aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 text-primary" /><div className="min-w-0 flex-1"><Link href={`/documents/${doc.id}`} className="break-words font-semibold hover:text-primary hover:underline">{doc.title}</Link><div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span>{doc.file_type.toUpperCase()}</span><span>{formatDate(doc.created_at)}</span><StatusBadge status={doc.processing_status} /></div><div className="mt-4 space-y-2"><label htmlFor={`move-${doc.id}`} className="text-xs text-muted-foreground">Chuyển tài liệu tới</label><Select id={`move-${doc.id}`} value={selected.id} disabled={!!moving} onChange={(event) => void move(doc.id, event.target.value)}><option value="">Ngoài thư mục</option>{allFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</Select>{moving === doc.id && <p role="status" className="text-xs text-muted-foreground">Đang chuyển tài liệu…</p>}</div></div></div></li>)}</ul>}
+        </>}
+      </section>
     </div>
-  );
+    <FolderFormDialog open={dialogOpen} onOpenChange={setDialogOpen} mode={mode} parentName={parent?.name} initial={initial} onSubmit={save} />
+    <ConfirmActionDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }} title="Xoá thư mục?" description={`Thư mục “${deleteTarget?.name ?? ""}” và toàn bộ thư mục con sẽ bị xoá. Tài liệu bên trong được giữ lại và đưa ra ngoài thư mục.`} label="Xoá thư mục" destructive onConfirm={remove} />
+  </div>;
 }

@@ -15,8 +15,9 @@ export default function Home() {
   }, [loading, user, router]);
 
   return (
-    <div className="flex h-screen items-center justify-center">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    <div role="status" className="flex min-h-dvh items-center justify-center gap-3">
+      <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-primary" />
+      <span className="text-muted-foreground">Đang mở không gian học tập…</span>
     </div>
   );
 }

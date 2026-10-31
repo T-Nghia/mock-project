@@ -25,11 +25,11 @@ export function ProfileDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         </DialogHeader>
 
         <div className="flex items-center gap-3 border-b border-border pb-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-lg font-semibold text-primary-foreground">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary text-lg font-semibold text-primary-foreground">
             {initials(user.full_name)}
           </div>
-          <div>
-            <p className="font-semibold">{user.full_name}</p>
+          <div className="min-w-0">
+            <p className="break-words font-semibold">{user.full_name}</p>
             <Badge variant="outline" className="mt-1">
               {ROLE_LABEL[user.role]}
             </Badge>
@@ -37,27 +37,27 @@ export function ProfileDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         </div>
 
         <div className="flex flex-col gap-3 pt-4 text-sm">
-          <div className="flex items-center gap-2.5">
-            <Mail className="h-4 w-4 text-muted-foreground" />
+          <div className="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 sm:grid-cols-[1rem_auto_minmax(0,1fr)]">
+            <Mail aria-hidden="true" className="mt-0.5 h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Email</span>
-            <span className="ml-auto font-medium">{user.email}</span>
+            <span className="col-start-2 min-w-0 break-all font-medium sm:col-start-3 sm:text-right">{user.email}</span>
           </div>
-          <div className="flex items-center gap-2.5">
-            <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+          <div className="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 sm:grid-cols-[1rem_auto_minmax(0,1fr)]">
+            <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Trạng thái</span>
-            <Badge variant={user.is_active ? "success" : "destructive"} className="ml-auto">
+            <Badge variant={user.is_active ? "success" : "destructive"} className="col-start-2 w-fit sm:col-start-3 sm:justify-self-end">
               {user.is_active ? "Đang hoạt động" : "Đã khoá"}
             </Badge>
           </div>
-          <div className="flex items-center gap-2.5">
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+          <div className="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 sm:grid-cols-[1rem_auto_minmax(0,1fr)]">
+            <Calendar aria-hidden="true" className="mt-0.5 h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Ngày tạo tài khoản</span>
-            <span className="ml-auto font-medium">{formatDate(user.created_at)}</span>
+            <span className="col-start-2 font-medium sm:col-start-3 sm:text-right">{formatDate(user.created_at)}</span>
           </div>
-          <div className="flex items-center gap-2.5">
-            <CircleUser className="h-4 w-4 text-muted-foreground" />
+          <div className="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 sm:grid-cols-[1rem_auto_minmax(0,1fr)]">
+            <CircleUser aria-hidden="true" className="mt-0.5 h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Mã người dùng</span>
-            <span className="ml-auto truncate font-mono text-xs text-muted-foreground">{user.id}</span>
+            <span className="col-start-2 min-w-0 break-all font-mono text-xs text-muted-foreground sm:col-start-3 sm:text-right">{user.id}</span>
           </div>
         </div>
       </DialogContent>

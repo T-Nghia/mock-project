@@ -35,24 +35,27 @@ function TreeNode({
     <div>
       <div
         className={cn(
-          "group flex items-center gap-1 rounded-md py-1.5 pr-1.5 text-sm hover:bg-accent",
+          "group flex min-w-0 items-center gap-1 rounded-lg py-1 pr-1 text-sm hover:bg-accent",
           selected && "bg-primary/10 text-primary font-medium"
         )}
-        style={{ paddingLeft: `${depth * 16 + 6}px` }}
+        style={{ paddingLeft: `${Math.min(depth, 4) * 10 + 4}px` }}
       >
         <button
+          type="button"
+          aria-label={`${open ? "Thu gọn" : "Mở rộng"} thư mục ${node.name}`}
+          aria-expanded={hasChildren ? open : undefined}
           onClick={() => setOpen(!open)}
-          className={cn("shrink-0 rounded p-0.5", !hasChildren && "invisible")}
+          className={cn("flex h-9 w-6 shrink-0 items-center justify-center rounded", !hasChildren && "invisible")}
         >
           <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-90")} />
         </button>
-        <button onClick={() => onSelect(node)} className="flex flex-1 items-center gap-1.5 truncate text-left">
+        <button type="button" aria-current={selected ? "true" : undefined} title={node.name} onClick={() => onSelect(node)} className="flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded text-left">
           {selected ? <FolderOpen className="h-4 w-4 shrink-0" /> : <Folder className="h-4 w-4 shrink-0" />}
-          <span className="truncate">{node.name}</span>
+          <span className="min-w-0 break-words">{node.name}</span>
         </button>
         <DropdownMenu>
-          <DropdownMenuTrigger>
-            <MoreVertical className="h-3.5 w-3.5 shrink-0 opacity-0 group-hover:opacity-100" />
+          <DropdownMenuTrigger aria-label={`Thao tác với thư mục ${node.name}`} className="flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground">
+            <MoreVertical aria-hidden="true" className="h-4 w-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => onCreateChild(node)}>
@@ -68,7 +71,7 @@ function TreeNode({
         </DropdownMenu>
       </div>
       {open && hasChildren && (
-        <div>
+        <div role="group" aria-label={`Thư mục con của ${node.name}`}>
           {node.children.map((child) => (
             <TreeNode
               key={child.id}

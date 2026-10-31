@@ -4,28 +4,30 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    color-scheme: light;
+    --background: 210 40% 98%;
     --foreground: 222 47% 11%;
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
     --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 210 40% 96%;
     --secondary-foreground: 222 47% 11%;
     --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 94%;
+    --muted-foreground: 215 19% 38%;
+    --accent: 214 32% 94%;
     --accent-foreground: 222 47% 11%;
-    --destructive: 0 72% 51%;
+    --destructive: 0 72% 42%;
     --destructive-foreground: 210 40% 98%;
-    --success: 142 71% 35%;
+    --success: 142 72% 29%;
     --success-foreground: 210 40% 98%;
-    --warning: 38 92% 45%;
+    --warning: 35 92% 30%;
     --warning-foreground: 210 40% 98%;
     --border: 214 32% 91%;
-    --input: 214 32% 91%;
+    --input: 214 23% 80%;
     --ring: 221 83% 53%;
-    --radius: 0.6rem;
+    --sidebar: 216 28% 97%;
+    --radius: 0.75rem;
   }
 }
 
@@ -34,7 +36,21 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-sm leading-relaxed text-foreground antialiased;
+  }
+  :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
+  }
+  ::selection {
+    background: hsl(var(--primary) / 0.15);
+    color: hsl(var(--foreground));
+  }
+}
+
+@layer components {
+  .skip-link {
+    @apply fixed left-4 top-4 z-[100] -translate-y-24 rounded-md bg-primary px-4 py-3 font-medium text-primary-foreground shadow-lg focus:translate-y-0;
   }
 }
 
@@ -44,4 +60,15 @@
 }
 ::-webkit-scrollbar-thumb {
   @apply rounded-full bg-border;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
