@@ -58,7 +58,7 @@ async function mockLibraryUpload(page, options = {}) {
       state.uploads.push(request.postDataBuffer().toString("utf8"));
       if (state.holdUpload) await uploadGate;
       if (role === "student") return respond({ detail: "Khong co quyen truy cap" }, 403);
-      if (state.uploadStatus !== 201) return respond({ detail: "Tệp chưa được chấp nhận. Vui lòng thử lại." }, state.uploadStatus);
+      if (state.uploadStatus !== 201) return respond({ detail: state.uploadErrorDetail ?? "Tệp chưa được chấp nhận. Vui lòng thử lại." }, state.uploadStatus);
       return respond({ id: docId, title: "Tài liệu nghiên cứu", file_type: "txt", folder_id: role === "teacher" ? folderId : null, uploaded_by: userId, suggested_questions: [], processing_status: "pending", created_at: user.created_at }, 201);
     }
     if (path === `/documents/${docId}`) return respond({ ...documents[0], uploaded_by: { id: userId, full_name: user.full_name }, file_size: 512, processing_status: "pending", suggested_questions: [] });

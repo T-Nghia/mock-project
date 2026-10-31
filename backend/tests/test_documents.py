@@ -186,6 +186,90 @@ class DocumentAPITestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(response.json()["title"], "ghi-chu.txt")
 
+    def _create_upload_folder(self, owner: User) -> uuid.UUID:
+        with TestingSessionLocal() as db:
+            folder = Folder(name="Upload folder", owner_id=owner.id)
+            db.add(folder)
+            db.commit()
+            db.refresh(folder)
+            return folder.id
+
+    def _assert_folder_upload_rejected(self, headers, folder_id, expected_status):
+        with TestingSessionLocal() as db:
+            before = (db.query(Document).count(), db.query(Tag).count(),
+                      db.query(DocumentTag).count())
+        with (
+            patch("app.services.document_service.get_storage") as storage_factory,
+            patch("app.api.routers.documents.dispatch_document_processing") as dispatch,
+        ):
+            response = self._upload(headers, folder_id=folder_id, tags="must-not-be-created")
+            self.assertEqual(response.status_code, expected_status, response.text)
+            storage_factory.return_value.save_stream.assert_not_called()
+            storage_factory.return_value.delete.assert_not_called()
+            dispatch.assert_not_called()
+        with TestingSessionLocal() as db:
+            after = (db.query(Document).count(), db.query(Tag).count(),
+                     db.query(DocumentTag).count())
+        self.assertEqual(after, before)
+        self.assertEqual(list(Path(self._tmp_upload_dir).iterdir()), [])
+        return response
+
+    def test_teacher_uploads_to_own_folder(self):
+        folder_id = self._create_upload_folder(self.teacher)
+        with patch("app.api.routers.documents.dispatch_document_processing") as dispatch:
+            response = self._upload(self.teacher_headers, folder_id=str(folder_id), tags="owned")
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["folder_id"], str(folder_id))
+        dispatch.assert_called_once()
+        self.assertTrue(self._uploaded_file_path().is_file())
+        with TestingSessionLocal() as db:
+            document = db.query(Document).one()
+            self.assertEqual(document.folder_id, folder_id)
+            self.assertEqual(document.uploaded_by, self.teacher.id)
+            self.assertEqual(db.query(Tag).one().name, "owned")
+
+    def test_teacher_cannot_upload_to_another_teachers_folder(self):
+        other = self._create_user("other-owner@example.com", UserRole.TEACHER)
+        folder_id = self._create_upload_folder(other)
+        self._assert_folder_upload_rejected(self.teacher_headers, str(folder_id), 404)
+
+    def test_admin_has_no_folder_ownership_bypass(self):
+        admin = self._create_user("folder-admin@example.com", UserRole.ADMIN)
+        folder_id = self._create_upload_folder(self.teacher)
+        self._assert_folder_upload_rejected(self._auth_headers(admin), str(folder_id), 404)
+
+    def test_admin_can_upload_to_own_folder(self):
+        admin = self._create_user("folder-admin@example.com", UserRole.ADMIN)
+        folder_id = self._create_upload_folder(admin)
+        with patch("app.api.routers.documents.dispatch_document_processing"):
+            response = self._upload(self._auth_headers(admin), folder_id=str(folder_id))
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["folder_id"], str(folder_id))
+
+    def test_student_is_still_blocked_when_upload_has_a_folder(self):
+        folder_id = self._create_upload_folder(self.student)
+        self._assert_folder_upload_rejected(self.student_headers, str(folder_id), 403)
+
+    def test_missing_folder_is_indistinguishable_from_foreign_folder(self):
+        missing = self._assert_folder_upload_rejected(self.teacher_headers, str(uuid.uuid4()), 404)
+        other = self._create_user("other-owner@example.com", UserRole.TEACHER)
+        foreign = self._assert_folder_upload_rejected(
+            self.teacher_headers, str(self._create_upload_folder(other)), 404
+        )
+        self.assertEqual(missing.json(), foreign.json())
+
+    def test_invalid_folder_uuid_returns_422_without_side_effects(self):
+        for invalid in ("not-a-uuid", "123", " ", "null"):
+            with self.subTest(folder_id=invalid):
+                response = self._assert_folder_upload_rejected(self.teacher_headers, invalid, 422)
+                self.assertEqual(response.json()["detail"][0]["loc"], ["body", "folder_id"])
+
+    def test_empty_folder_field_keeps_unfiled_upload_behavior(self):
+        with patch("app.api.routers.documents.dispatch_document_processing"):
+            response = self._upload(self.teacher_headers, folder_id="")
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertIsNone(response.json()["folder_id"])
+
     # ---- View Metadata (muc 2.2) ---------------------------------------
 
     def test_get_metadata_returns_full_details_and_matches_file_size(self):

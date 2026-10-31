@@ -15,8 +15,12 @@ class DocumentRepository:
         self.db = db
 
     def create(self, document: Document) -> Document:
-        self.db.add(document)
-        self.db.commit()
+        try:
+            self.db.add(document)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
         self.db.refresh(document)
         return document
 

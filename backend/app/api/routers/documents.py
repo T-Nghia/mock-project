@@ -9,6 +9,7 @@ from app.core.permissions import Permission
 from app.core.security import require_permission
 from app.models.document import ProcessingStatus
 from app.repositories.document_repo import DocumentRepository
+from app.repositories.folder_repo import FolderRepository
 from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.document import DocumentMetadataResponse, DocumentResponse
@@ -23,6 +24,7 @@ def _build_service(db: Session) -> DocumentService:
         doc_repo=DocumentRepository(db),
         tag_repo=TagRepository(db),
         user_repo=UserRepository(db),
+        folder_repo=FolderRepository(db),
     )
 
 
@@ -31,7 +33,7 @@ def upload_document_endpoint(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
-    folder_id: str | None = Form(default=None),
+    folder_id: uuid.UUID | None = Form(default=None),
     tags: str | None = Form(default=None),
     current_user=Depends(require_permission(Permission.CREATE_DOCUMENT)),
     db: Session = Depends(get_db),
@@ -40,9 +42,6 @@ def upload_document_endpoint(
     service = _build_service(db)
 
     # 2. Xử lý các tham số đầu vào
-    # Convert string uuid từ Form sang object uuid.UUID
-    parsed_folder_id = uuid.UUID(folder_id) if folder_id else None
-    
     # Tach chuoi tags "tag1, tag2" thanh list ["tag1", "tag2"]
     parsed_tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
 
@@ -50,7 +49,7 @@ def upload_document_endpoint(
     document = service.save_upload(
         file=file,
         title=title,
-        folder_id=parsed_folder_id,
+        folder_id=folder_id,
         uploaded_by=current_user.id,
         tags=parsed_tags,
     )
