@@ -27,6 +27,7 @@ jobs:
     env:
       ENV: test
       DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
+      UPLOAD_FOLDER_TEST_DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
       JWT_SECRET_KEY: ci-only-secret
     steps:
       - uses: actions/checkout@v4

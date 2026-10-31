@@ -157,6 +157,34 @@ test("failed upload preserves file and all metadata for explicit retry", async (
   expect(state.uploads).toHaveLength(2);
 });
 
+for (const failure of [
+  { status: 404, detail: "Thu muc khong ton tai hoac khong thuoc quyen quan ly cua ban", message: "Thu muc khong ton tai" },
+  { status: 422, detail: [{ loc: ["body", "folder_id"], msg: "Input should be a valid UUID", type: "uuid_parsing" }], message: "Input should be a valid UUID" },
+]) {
+  test(`folder upload ${failure.status} preserves form and supports explicit retry`, async ({ page }) => {
+    const state = await openUpload(page);
+    state.uploadStatus = failure.status;
+    state.uploadErrorDetail = failure.detail;
+    await selectFile(page);
+    await page.getByLabel("Tiêu đề", { exact: false }).fill("Giữ nguyên tài liệu");
+    await page.getByLabel("Thẻ (tùy chọn)", { exact: true }).fill("AI, RAG");
+    await page.getByLabel("Thư mục (tùy chọn)", { exact: true }).selectOption(folderId);
+    await page.getByRole("button", { name: "Tải lên", exact: true }).click();
+    await expect(page.getByRole("main").getByRole("alert")).toContainText(failure.message);
+    await expect(page.getByText(validFile.name, { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Tiêu đề", { exact: false })).toHaveValue("Giữ nguyên tài liệu");
+    await expect(page.getByLabel("Thẻ (tùy chọn)", { exact: true })).toHaveValue("AI, RAG");
+    await expect(page.getByLabel("Thư mục (tùy chọn)", { exact: true })).toHaveValue(folderId);
+    expect(state.uploads).toHaveLength(1);
+    expect(state.uploads[0]).toContain(folderId);
+    state.uploadStatus = 201;
+    await page.getByRole("button", { name: "Thử tải lên lại" }).click();
+    await expect(page.getByRole("heading", { name: "Đã tải tài liệu lên" })).toBeVisible();
+    expect(state.uploads).toHaveLength(2);
+    expect(state.unexpected).toEqual([]);
+  });
+}
+
 test("in-flight upload is indeterminate, locked and cannot double-submit", async ({ page }) => {
   const state = await openUpload(page); state.holdUpload = true;
   try {

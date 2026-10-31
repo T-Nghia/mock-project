@@ -6,11 +6,14 @@ from collections.abc import Sequence
 
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile, status
+from psycopg2.errors import ForeignKeyViolation
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.models.document import Document, DocumentChunk, ProcessingStatus
 from app.models.user import UserRole
 from app.repositories.document_repo import DocumentRepository
+from app.repositories.folder_repo import FolderRepository
 from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
 from app.utils.text_extract import (
@@ -71,6 +74,7 @@ class DocumentService:
         embedding_provider: GeminiEmbeddingProvider | None = None,
         sleep=time.sleep,
         storage: ObjectStorage | None = None,
+        folder_repo: FolderRepository | None = None,
     ):
         self.doc_repo = doc_repo
         self.tag_repo = tag_repo
@@ -78,6 +82,7 @@ class DocumentService:
         self.embedding_provider = embedding_provider
         self.sleep = sleep
         self.storage = storage or get_storage()
+        self.folder_repo = folder_repo
 
     def _get_document_or_404(self, document_id: uuid.UUID) -> Document:
         document = self.doc_repo.get_by_id(document_id)
@@ -194,6 +199,15 @@ class DocumentService:
         uploaded_by: uuid.UUID,
         tags: list[str] | None = None,
     ) -> Document:
+        if folder_id is not None:
+            if self.folder_repo is None:
+                raise RuntimeError("Folder authorization repository is required for folder uploads")
+            if self.folder_repo.get_owned(folder_id, uploaded_by) is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Thu muc khong ton tai hoac khong thuoc quyen quan ly cua ban",
+                )
+
         filename = file.filename or ""
         ext = Path(filename).suffix.lower().lstrip(".")
 
@@ -222,6 +236,9 @@ class DocumentService:
         content_type = (
             file.content_type or EXTENSION_MIME_OVERRIDES.get(ext) or "application/octet-stream"
         )
+        # Authentication and folder authorization only read from this session.
+        # End that transaction before object I/O; the FK handles concurrent deletion.
+        self.doc_repo.db.rollback()
         file_location = self.storage.save_stream(stored_name, stream, content_type)
 
         # 4. Lưu Metadata Document vào DB (Trạng thái PENDING)
@@ -236,8 +253,21 @@ class DocumentService:
         )
         try:
             document = self.doc_repo.create(document)
-        except Exception:
+        except Exception as exc:
             self.storage.delete(file_location)
+            # PostgreSQL's constraint name comes from the existing Alembic schema.
+            # Other integrity/driver errors must retain their original meaning.
+            if (
+                folder_id is not None
+                and isinstance(exc, IntegrityError)
+                and isinstance(exc.orig, ForeignKeyViolation)
+                and exc.orig.diag.table_name == "documents"
+                and exc.orig.diag.constraint_name == "documents_folder_id_fkey"
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Thu muc khong ton tai hoac khong thuoc quyen quan ly cua ban",
+                ) from exc
             raise
 
         # 5. Gán Tags (tận dụng TagRepository)
