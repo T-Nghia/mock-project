@@ -50,7 +50,9 @@ class StorageCleanupJob(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     next_attempt_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False,
-        default=lambda: datetime.now(timezone.utc), server_default=text("CURRENT_TIMESTAMP"),
+        # Let PostgreSQL schedule initial work too; API clock skew must not
+        # postpone a committed deletion. The M1 server default already exists.
+        server_default=text("CURRENT_TIMESTAMP"),
     )
     lease_token: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

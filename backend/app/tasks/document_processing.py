@@ -10,6 +10,7 @@ from botocore.exceptions import (
     ReadTimeoutError,
 )
 from celery.exceptions import MaxRetriesExceededError
+from sqlalchemy.exc import DBAPIError, OperationalError
 
 from app.core.database import SessionLocal
 from app.core.config import settings
@@ -17,7 +18,7 @@ from app.models.document import ProcessingStatus
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
-from app.services.document_service import DocumentService
+from app.services.document_service import DocumentService, ProcessingOutcome
 from app.services.gemini_embedding_provider import GeminiEmbeddingProviderError
 from app.worker import celery_app
 
@@ -26,6 +27,9 @@ def is_retryable_processing_error(exc: Exception) -> bool:
     """Return whether rerunning the complete document job can recover."""
     if isinstance(exc, GeminiEmbeddingProviderError):
         return exc.retryable
+    if isinstance(exc, DBAPIError):
+        return (isinstance(exc, OperationalError) or exc.connection_invalidated
+                or getattr(exc.orig, "pgcode", None) in {"40001", "40P01"})
     if isinstance(exc, (TimeoutError, ConnectionError, httpx.TimeoutException, httpx.NetworkError)):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
@@ -46,18 +50,26 @@ def is_retryable_processing_error(exc: Exception) -> bool:
 
 def retry_countdown(retries: int) -> int:
     """Exponential 30-300 second delay plus up to 20 percent jitter."""
-    base = min(30 * (2**retries), 300)
+    base = min(30 * (2**min(max(retries, 0), 4)), 300)
     return base + random.randint(0, max(1, base // 5))
 
 
-def handle_processing_failure(task, repository, document, exc: Exception) -> None:
+def handle_processing_failure(task, repository, document_id: uuid.UUID, exc: Exception):
     can_retry = is_retryable_processing_error(exc) and task.request.retries < task.max_retries
-    if document is not None:
-        repository.update_status(
-            document,
+    try:
+        exists = repository.update_status(
+            document_id,
             ProcessingStatus.RETRYING if can_retry else ProcessingStatus.FAILED,
             last_error=str(exc),
         )
+    except DBAPIError as state_error:
+        # A DB outage is not proof that DELETE committed. Retry under the
+        # existing policy even when recording RETRYING is temporarily impossible.
+        if is_retryable_processing_error(state_error) and task.request.retries < task.max_retries:
+            raise task.retry(exc=state_error, countdown=retry_countdown(task.request.retries))
+        raise
+    if not exists:
+        return ProcessingOutcome.DOCUMENT_DELETED
     if not can_retry:
         raise exc
     try:
@@ -66,12 +78,8 @@ def handle_processing_failure(task, repository, document, exc: Exception) -> Non
             countdown=retry_countdown(task.request.retries),
         )
     except MaxRetriesExceededError:
-        if document is not None:
-            repository.update_status(
-                document,
-                ProcessingStatus.FAILED,
-                last_error=str(exc),
-            )
+        if not repository.update_status(document_id, ProcessingStatus.FAILED, last_error=str(exc)):
+            return ProcessingOutcome.DOCUMENT_DELETED
         raise
 
 
@@ -84,7 +92,7 @@ def handle_processing_failure(task, repository, document, exc: Exception) -> Non
     soft_time_limit=settings.DOCUMENT_TASK_TIMEOUT_SECONDS,
     time_limit=settings.DOCUMENT_TASK_TIMEOUT_SECONDS + 30,
 )
-def process_document(self, document_id: str) -> None:
+def process_document(self, document_id: str) -> str:
     db = SessionLocal()
     try:
         repository = DocumentRepository(db)
@@ -95,12 +103,14 @@ def process_document(self, document_id: str) -> None:
         )
         parsed_document_id = uuid.UUID(document_id)
         try:
-            service.process_document_sync(
+            outcome = service.process_document_sync(
                 parsed_document_id,
                 mark_failed_on_error=False,
             )
+            return outcome.value
         except Exception as exc:
-            document = repository.get_by_id(parsed_document_id)
-            handle_processing_failure(self, repository, document, exc)
+            db.rollback()
+            outcome = handle_processing_failure(self, repository, parsed_document_id, exc)
+            return outcome.value
     finally:
         db.close()

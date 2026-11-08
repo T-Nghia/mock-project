@@ -7,13 +7,12 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.permissions import Permission
 from app.core.security import require_permission
-from app.models.document import ProcessingStatus
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.folder_repo import FolderRepository
 from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.document import DocumentMetadataResponse, DocumentResponse
-from app.services.document_service import DocumentService
+from app.services.document_service import DocumentService, ProcessingOutcome
 from app.services.document_deletion_service import DocumentDeletionService
 from app.services.document_dispatcher import dispatch_document_processing
 
@@ -56,13 +55,14 @@ def upload_document_endpoint(
     )
 
     # 4. Đẩy công việc nặng (Extract text, Chunking, Embedding) vào Background Task
+    response = DocumentResponse.model_validate(document)
     dispatch_document_processing(
         service=service,
         document_id=document.id,
         background_tasks=background_tasks,
     )
 
-    return document
+    return response
 
 
 @router.post("/documents/{document_id}/retry", response_model=DocumentResponse)
@@ -73,16 +73,12 @@ def retry_document_endpoint(
     db: Session = Depends(get_db),
 ):
     service = _build_service(db)
-    document = service._get_document_or_404(document_id)
-    role = getattr(current_user.role, "value", current_user.role)
-    if document.uploaded_by != current_user.id and role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Khong co quyen retry")
-    if document.processing_status not in {ProcessingStatus.FAILED, ProcessingStatus.PENDING}:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Document cannot be retried")
-    service.doc_repo.update_status(document, ProcessingStatus.PENDING)
-    dispatch_document_processing(
+    document = service.prepare_retry(document_id, current_user)
+    outcome = dispatch_document_processing(
         service=service, document_id=document.id, background_tasks=background_tasks
     )
+    if outcome == ProcessingOutcome.DOCUMENT_DELETED:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài liệu.")
     return document
 
 

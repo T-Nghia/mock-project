@@ -1,4 +1,4 @@
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     STORAGE_REGION: str = "auto"
     STORAGE_ACCESS_KEY_ID: str = ""
     STORAGE_SECRET_ACCESS_KEY: str = ""
+    CLEANUP_POLL_SECONDS: float = Field(default=5, gt=0, le=60)
+    CLEANUP_LEASE_SECONDS: int = Field(default=120, ge=1, le=86400)
+    CLEANUP_CONNECT_TIMEOUT_SECONDS: float = Field(default=5, gt=0, le=60)
+    CLEANUP_READ_TIMEOUT_SECONDS: float = Field(default=15, gt=0, le=60)
+    CLEANUP_RETRY_BASE_SECONDS: int = Field(default=30, ge=1, le=3600)
+    CLEANUP_RETRY_MAX_SECONDS: int = Field(default=3600, ge=1, le=86400)
     DOCUMENT_PROCESSING_MODE: str = "background"
     CELERY_BROKER_URL: str = ""
     DOCUMENT_TASK_MAX_RETRIES: int = 5
