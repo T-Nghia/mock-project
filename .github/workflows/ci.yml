@@ -28,6 +28,7 @@ jobs:
       ENV: test
       DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
       UPLOAD_FOLDER_TEST_DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
+      DELETE_TEST_DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
       JWT_SECRET_KEY: ci-only-secret
       CI_MINIO_CONTAINER: slrms-ci-minio-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
@@ -45,6 +46,9 @@ jobs:
         run: >-
           mypy app/core/config.py app/core/rate_limit.py app/models/document.py
           app/repositories/document_repo.py app/services/document_service.py
+          app/models/storage_cleanup.py app/repositories/storage_cleanup_repo.py
+          app/services/document_deletion_service.py
+          app/services/chat_service.py app/repositories/chat_repo.py app/schemas/chat.py
           app/services/storage.py app/services/document_dispatcher.py
           app/tasks/document_processing.py app/worker.py
           --ignore-missing-imports --check-untyped-defs --explicit-package-bases

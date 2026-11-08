@@ -78,7 +78,7 @@ async function openDashboard(page, options) {
   return requests;
 }
 
-for (const [role, count] of [["student", 3], ["teacher", 5], ["admin", 5]]) {
+for (const [role, count] of [["student", 4], ["teacher", 6], ["admin", 6]]) {
   test("desktop navigation preserves " + role + " permissions", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openDashboard(page, { role });

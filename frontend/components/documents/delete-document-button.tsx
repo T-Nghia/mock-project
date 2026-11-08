@@ -44,8 +44,8 @@ export function DeleteDocumentButton({ documentId, documentTitle, onDeleted }: D
             <DialogTitle>Xóa tài liệu?</DialogTitle>
             <DialogDescription>
               Bạn sắp xóa <span className="font-medium text-foreground">&ldquo;{documentTitle}&rdquo;</span>. Hành
-              động này không thể hoàn tác — tài liệu, các cuộc trò chuyện AI, bình luận và đánh giá liên quan sẽ bị
-              xóa vĩnh viễn.
+              động này không thể hoàn tác: tài liệu, bình luận và đánh giá liên quan sẽ bị xóa.
+              Lịch sử trò chuyện AI và trích dẫn được giữ trong Lịch sử trò chuyện, ở chế độ chỉ đọc khi tài liệu đã xóa.
             </DialogDescription>
           </DialogHeader>
 

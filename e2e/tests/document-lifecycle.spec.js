@@ -97,6 +97,22 @@ test("upload, process, search, chat, download, and delete a document", async ({ 
     const download = await request.get(`${apiUrl}/documents/${documentId}/download`, { headers });
     expect(download.status(), await download.text()).toBe(200);
     expect(Buffer.compare(await download.body(), content)).toBe(0);
+
+    const beforeDelete = await request.get(`${apiUrl}/chat/sessions/${sessionId}`, { headers });
+    expect(beforeDelete.status(), await beforeDelete.text()).toBe(200);
+    const savedMessages = (await beforeDelete.json()).messages;
+    const deletion = await request.delete(`${apiUrl}/documents/${documentId}`, { headers });
+    expect(deletion.status(), await deletion.text()).toBe(204);
+    const orphan = await request.get(`${apiUrl}/chat/sessions/${sessionId}`, { headers });
+    expect(orphan.status(), await orphan.text()).toBe(200);
+    const retained = await orphan.json();
+    expect(retained.document_id).toBeNull();
+    expect(retained.messages).toEqual(savedMessages);
+    const readOnly = await request.post(`${apiUrl}/chat/sessions/${sessionId}/messages`, {
+      headers, data: { content: "This deleted document must be read-only." },
+    });
+    expect(readOnly.status(), await readOnly.text()).toBe(409);
+    expect((await request.delete(`${apiUrl}/documents/${documentId}`, { headers })).status()).toBe(404);
   } finally {
     if (sessionId) {
       await request.delete(`${apiUrl}/chat/sessions/${sessionId}`, { headers });

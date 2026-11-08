@@ -13,6 +13,7 @@ import type {
   FolderTreeNode,
   PaginatedBookmarks,
   PaginatedComments,
+  PaginatedChatSessions,
   RatingSummary,
   SearchParams,
   SearchPaginatedResponse,
@@ -287,6 +288,9 @@ export const dashboardApi = {
 // ---------- Chat with Documents (RAG) ----------
 
 export const chatApi = {
+  listSessions(limit = 20, offset = 0) {
+    return request<PaginatedChatSessions>("/chat/sessions", { query: { limit, offset } });
+  },
   createSession(documentId: string) {
     return request<ChatSession>("/chat/sessions", { method: "POST", body: { document_id: documentId } });
   },

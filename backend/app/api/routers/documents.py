@@ -14,6 +14,7 @@ from app.repositories.tag_repo import TagRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.document import DocumentMetadataResponse, DocumentResponse
 from app.services.document_service import DocumentService
+from app.services.document_deletion_service import DocumentDeletionService
 from app.services.document_dispatcher import dispatch_document_processing
 
 router = APIRouter(prefix="", tags=["Documents"])
@@ -155,6 +156,5 @@ def delete_document_endpoint(
     Chỉ người đã tải tài liệu lên hoặc Admin mới được xóa. Student không có
     quyền REVIEW_DOCUMENT nên không thể gọi endpoint này.
     """
-    service = _build_service(db)
-    service.delete_document(document_id, current_user)
+    DocumentDeletionService(db).delete_document(document_id, current_user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

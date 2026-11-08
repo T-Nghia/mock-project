@@ -28,11 +28,14 @@ class ChatRepository:
         *,
         session_id: uuid.UUID,
         user_id: uuid.UUID,
+        for_update: bool = False,
     ) -> ChatSession | None:
         stmt = select(ChatSession).where(
             ChatSession.id == session_id,
             ChatSession.user_id == user_id,
         )
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         return self.db.scalar(stmt)
 
     def delete_owned_session(
@@ -40,12 +43,32 @@ class ChatRepository:
         *,
         session_id: uuid.UUID,
         user_id: uuid.UUID,
-    ) -> None:
-        session = self.get_owned_session(session_id=session_id, user_id=user_id)
+    ) -> bool:
+        session = self.get_owned_session(
+            session_id=session_id, user_id=user_id, for_update=True,
+        )
         if session is None:
-            return
+            return False
         self.db.delete(session)
         self.db.commit()
+        return True
+
+    def list_owned_sessions(
+        self, *, user_id: uuid.UUID, limit: int, offset: int,
+    ) -> list[ChatSession]:
+        stmt = (
+            select(ChatSession)
+            .where(ChatSession.user_id == user_id)
+            .order_by(ChatSession.created_at.desc(), ChatSession.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def count_owned_sessions(self, *, user_id: uuid.UUID) -> int:
+        return self.db.scalar(
+            select(func.count(ChatSession.id)).where(ChatSession.user_id == user_id)
+        ) or 0
 
     def list_owned_sessions_by_document(
         self,

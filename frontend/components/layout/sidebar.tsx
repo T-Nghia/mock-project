@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderTree, Library, UploadCloud, Users, GraduationCap, Bookmark, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { LayoutDashboard, FolderTree, Library, UploadCloud, Users, GraduationCap, Bookmark, History, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@/lib/types";
 
@@ -20,6 +20,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
       { href: "/search", label: "Thư viện tài liệu", icon: Library },
       { href: "/bookmarks", label: "Đã lưu", icon: Bookmark },
+      { href: "/chat", label: "Lịch sử trò chuyện", icon: History },
     ],
   },
   {

@@ -11,7 +11,6 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.models.document import Document, DocumentChunk, ProcessingStatus
-from app.models.user import UserRole
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.folder_repo import FolderRepository
 from app.repositories.tag_repo import TagRepository
@@ -170,26 +169,6 @@ class DocumentService:
         cách endpoint gắn Content-Disposition (inline thay vì attachment).
         """
         return self.get_file_for_download(document_id)
-
-    def delete_document(self, document_id: uuid.UUID, current_user) -> None:
-        """Xóa tài liệu (record DB + file vật lý trên đĩa).
-
-        Chỉ người đã tải tài liệu lên (chủ sở hữu) hoặc Admin mới được xóa.
-        Các dữ liệu liên quan (chunks, tags, chat sessions, bookmark, comment,
-        rating) đã được cấu hình ON DELETE CASCADE/SET NULL ở DB nên sẽ tự dọn theo.
-        """
-        document = self._get_document_or_404(document_id)
-
-        is_owner = document.uploaded_by == current_user.id
-        is_admin = current_user.role == UserRole.ADMIN
-        if not is_owner and not is_admin:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bạn chỉ có thể xóa tài liệu do chính mình tải lên.",
-            )
-
-        self.doc_repo.delete(document)
-        self.storage.delete(document.file_path)
 
     def save_upload(
         self,

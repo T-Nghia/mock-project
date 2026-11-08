@@ -28,9 +28,16 @@ class DocumentRepository:
         stmt = select(Document).where(Document.id == document_id)
         return self.db.scalar(stmt)
 
-    def delete(self, document: Document) -> None:
+    def get_for_update(self, document_id: uuid.UUID) -> Document | None:
+        stmt = (
+            select(Document).where(Document.id == document_id)
+            .with_for_update().execution_options(populate_existing=True)
+        )
+        return self.db.scalar(stmt)
+
+    def stage_delete(self, document: Document) -> None:
+        """The deletion service commits this alongside the cleanup job."""
         self.db.delete(document)
-        self.db.commit()
 
     def list_by_folder(self, folder_id: uuid.UUID | None = None) -> list[Document]:
         stmt = select(Document)

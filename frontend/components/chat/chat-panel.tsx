@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Send, Sparkles, Loader2, Quote, Plus, History, Trash2, ChevronDown, ArrowUpRight } from "lucide-react";
 import { chatApi, ApiError } from "@/lib/api";
 import type { ChatMessage, ChatSession } from "@/lib/types";
@@ -28,6 +29,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
   const [switching, setSwitching] = useState(false);
   const [asking, setAsking] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [documentDeleted, setDocumentDeleted] = useState(false);
   const messageListRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const operationRef = useRef(false);
@@ -54,6 +56,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
           if (cancelled) return;
           setSessionId(detail.id);
           setMessages(detail.messages);
+          setDocumentDeleted(detail.document_id === null);
         }
         // Reading a document (including Strict Mode remounts) never creates a session.
       } catch (err) {
@@ -109,6 +112,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
       if (!mountedRef.current) return;
       setSessionId(detail.id);
       setMessages(detail.messages);
+      setDocumentDeleted(detail.document_id === null);
       setInput(draftsRef.current[id] ?? "");
     } catch (err) {
       reportError("Không tải được cuộc trò chuyện", err);
@@ -122,7 +126,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
   }
 
   async function startNewSession() {
-    if (busy || initialError || operationRef.current) return;
+    if (busy || initialError || documentDeleted || operationRef.current) return;
     operationRef.current = true;
     setSwitching(true);
     setError(null);
@@ -140,7 +144,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
 
   async function sendQuestion(content: string) {
     const trimmed = content.trim();
-    if (!trimmed || busy || initialError || operationRef.current) return;
+    if (!trimmed || busy || initialError || documentDeleted || operationRef.current) return;
     // A synchronous lock also covers rapid clicks before React re-renders.
     operationRef.current = true;
     setAsking(true);
@@ -167,6 +171,17 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
       setMessages((prev) => prev.filter((message) => message.id !== userMessage.id));
       setInput(trimmed);
       draftsRef.current[targetId ?? "new"] = trimmed;
+      if (err instanceof ApiError && err.status === 409 && targetId) {
+        try {
+          const detail = await chatApi.getSession(targetId);
+          if (mountedRef.current && detail.document_id === null) {
+            setDocumentDeleted(true);
+            setMessages(detail.messages);
+          }
+        } catch (refreshError) {
+          reportError("Không cập nhật được trạng thái cuộc trò chuyện", refreshError);
+        }
+      }
     } finally {
       operationRef.current = false;
       if (mountedRef.current) {
@@ -198,6 +213,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
           if (!mountedRef.current) return;
           setSessionId(detail.id);
           setMessages(detail.messages);
+          setDocumentDeleted(detail.document_id === null);
           setInput(draftsRef.current[detail.id] ?? "");
         }
       }
@@ -217,7 +233,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
         <div className="flex items-center gap-2.5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Sparkles aria-hidden="true" className="h-4 w-4" /></span>
           <div className="min-w-0 flex-1"><h2 className="text-sm font-semibold">Trợ lý AI</h2><p className="truncate text-xs text-muted-foreground">Cùng bạn khám phá tài liệu</p></div>
-          <Button variant="ghost" size="icon" aria-label="Cuộc trò chuyện mới" title="Cuộc trò chuyện mới" onClick={startNewSession} disabled={busy || !!initialError}><Plus aria-hidden="true" className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="icon" aria-label="Cuộc trò chuyện mới" title="Cuộc trò chuyện mới" onClick={startNewSession} disabled={busy || !!initialError || documentDeleted}><Plus aria-hidden="true" className="h-4 w-4" /></Button>
         </div>
         <div className="mt-3 flex items-center gap-3">
           <DropdownMenu open={historyOpen} onOpenChange={setHistoryOpen}>
@@ -247,7 +263,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
           <div className="space-y-3 py-8 text-center"><p role="alert" className="text-sm text-destructive">{initialError}</p><Button size="sm" variant="outline" onClick={() => setAttempt((value) => value + 1)}>Thử lại lịch sử</Button></div>
         ) : (
           <>
-            {messages.length === 0 && !asking && (
+            {messages.length === 0 && !asking && !documentDeleted && (
               <div className="flex flex-col items-center py-5 text-center">
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/10 bg-primary/5 text-primary"><Sparkles aria-hidden="true" className="h-6 w-6" /></div>
                 <h3 className="text-base font-semibold tracking-tight">Hiểu sâu hơn, từng câu hỏi</h3>
@@ -281,7 +297,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
         )}
       </div>
 
-      <form onSubmit={(event) => { event.preventDefault(); void sendQuestion(input); }} className="shrink-0 border-t border-border bg-card p-3 sm:p-4">
+      {documentDeleted ? <div role="status" className="shrink-0 border-t border-border p-4 text-sm leading-6 text-muted-foreground">Tài liệu đã bị xóa. Cuộc trò chuyện chỉ đọc; trích dẫn là bản lưu tại thời điểm trả lời. <Link href="/chat" className="font-medium text-primary underline">Mở lịch sử trò chuyện</Link></div> : <form onSubmit={(event) => { event.preventDefault(); void sendQuestion(input); }} className="shrink-0 border-t border-border bg-card p-3 sm:p-4">
         <div className="rounded-xl border border-input bg-background p-2 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10">
           <Textarea ref={inputRef} aria-label="Câu hỏi cho trợ lý AI" value={input} onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
@@ -294,7 +310,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
           </div>
         </div>
         <p className="mt-2 text-center text-[10px] leading-4 text-muted-foreground">Đối chiếu câu trả lời AI với nguồn trích dẫn trong tài liệu.</p>
-      </form>
+      </form>}
     </div>
   );
 }

@@ -47,7 +47,7 @@ class ChatMessageResponse(BaseModel):
 
 class ChatSessionResponse(BaseModel):
     id: UUID
-    document_id: UUID
+    document_id: UUID | None
     title: str
     created_at: datetime
 
@@ -56,6 +56,13 @@ class ChatSessionResponse(BaseModel):
 
 class ChatSessionDetailResponse(ChatSessionResponse):
     messages: list[ChatMessageResponse]
+
+
+class ChatSessionListResponse(BaseModel):
+    items: list[ChatSessionResponse]
+    total: int
+    limit: int
+    offset: int
 
 
 class ChatAnswerResponse(BaseModel):

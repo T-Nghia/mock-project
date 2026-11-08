@@ -11,11 +11,21 @@ from app.schemas.chat import (
     ChatQuestionRequest,
     ChatSessionCreate,
     ChatSessionDetailResponse,
+    ChatSessionListResponse,
     ChatSessionResponse,
 )
 
 
 class ChatSchemasTestCase(unittest.TestCase):
+    def test_orphan_session_serializes_nullable_document_id_in_history_and_detail(self):
+        detail = ChatSessionDetailResponse(
+            id=uuid.uuid4(), document_id=None, title="Retained chat",
+            created_at=datetime.now(timezone.utc), messages=[],
+        )
+        page = ChatSessionListResponse(items=[detail], total=1, limit=20, offset=0)
+        self.assertIsNone(detail.model_dump(mode="json")["document_id"])
+        self.assertIsNone(page.model_dump(mode="json")["items"][0]["document_id"])
+
     def test_question_is_trimmed(self):
         request = ChatQuestionRequest(content="  Bien trong Python la gi?  ")
 
