@@ -168,6 +168,61 @@ jobs:
           SMOKE_PASSWORD: ci-placeholder-not-used
         run: npx playwright test --list
 
+  security-real-backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      CI_BACKEND_IMAGE: slrms-security-backend:${{ github.run_id }}-${{ github.run_attempt }}
+      CI_FRONTEND_IMAGE: slrms-security-frontend:${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.2"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate fixture safety helpers
+        run: python -m unittest discover -s e2e/scripts -p 'test_security_harness.py' -v
+      - run: npm --prefix e2e ci --no-audit --no-fund
+      - name: Install Chromium for reviewed Playwright
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+      - name: Build same-commit backend and production frontend
+        run: |
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "$CI_BACKEND_IMAGE" backend
+          docker build --build-arg "BUILD_REVISION=$GITHUB_SHA" \
+            --build-arg NEXT_PUBLIC_API_URL=http://localhost:8000 \
+            --tag "$CI_FRONTEND_IMAGE" frontend
+      - name: Run both real-backend security acceptance tests
+        run: |
+          python e2e/scripts/run-security-local.py \
+            --backend-image "$CI_BACKEND_IMAGE" --frontend-image "$CI_FRONTEND_IMAGE"
+      - name: Always clean up only owned security fixtures
+        if: always()
+        run: python e2e/scripts/run-security-local.py --cleanup-only
+      - name: Upload bounded sanitized fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-real-backend-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          path: |
+            .cache/frontend-security-next16/real-backend/result.json
+            .cache/frontend-security-next16/real-backend/fixtures.json
+            .cache/frontend-security-next16/real-backend/cleanup.json
+            .cache/frontend-security-next16/real-backend/fallback-cleanup.json
+            .cache/frontend-security-next16/real-backend/next16-*.log
+          if-no-files-found: warn
+          retention-days: 7
+
   containers:
     runs-on: ubuntu-latest
     env:
