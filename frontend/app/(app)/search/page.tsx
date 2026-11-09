@@ -49,27 +49,29 @@ function DocumentLibrary() {
   const searchRef = useRef<HTMLInputElement>(null);
   const lastNavigation = useRef<string | null>(null);
 
-  useEffect(() => {
+  const [previousQuery, setPreviousQuery] = useState(queryKey);
+  if (previousQuery !== queryKey) {
+    setPreviousQuery(queryKey);
     setKeyword(activeKeyword);
     setSubject(activeSubject);
     setTags(activeTags);
     setFolder(activeFolder);
-    lastNavigation.current = null;
-  }, [activeKeyword, activeSubject, activeTags, activeFolder, page]);
+  }
+  useEffect(() => { lastNavigation.current = null; }, [queryKey]);
+  const requestKey = `${queryKey}:${attempt}`;
 
   useEffect(() => {
     let cancelled = false;
-    setState({ key: queryKey, result: null, error: false });
     searchApi.search({ keyword: activeKeyword || undefined, subject: activeSubject || undefined,
       tags: activeTags ? activeTags.split(",").map((tag) => tag.trim()).filter(Boolean) : undefined,
       folder_id: activeFolder || undefined, page, page_size: PAGE_SIZE })
-      .then((result) => { if (!cancelled) setState({ key: queryKey, result, error: false }); })
-      .catch(() => { if (!cancelled) setState({ key: queryKey, result: null, error: true }); });
+      .then((result) => { if (!cancelled) setState({ key: requestKey, result, error: false }); })
+      .catch(() => { if (!cancelled) setState({ key: requestKey, result: null, error: true }); });
     return () => { cancelled = true; };
-  }, [queryKey, activeKeyword, activeSubject, activeTags, activeFolder, page, attempt]);
+  }, [requestKey, activeKeyword, activeSubject, activeTags, activeFolder, page, attempt]);
 
-  const result = state.key === queryKey ? state.result : null;
-  const error = state.key === queryKey && state.error;
+  const result = state.key === requestKey ? state.result : null;
+  const error = state.key === requestKey && state.error;
   const loading = !result && !error;
   const hasFilters = !!(activeKeyword || activeSubject || activeTags || activeFolder);
   const canUpload = user?.role === "teacher" || user?.role === "admin";

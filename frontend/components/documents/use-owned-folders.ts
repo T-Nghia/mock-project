@@ -10,11 +10,17 @@ export function useOwnedFolders(teacherId?: string) {
   const [loading, setLoading] = useState(!!teacherId);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const requestKey = `${teacherId}:${attempt}`;
+  const [previousRequest, setPreviousRequest] = useState(requestKey);
+  if (previousRequest !== requestKey) {
+    setPreviousRequest(requestKey);
+    setLoading(!!teacherId);
+    setError(false);
+  }
+
   useEffect(() => {
     if (!teacherId) return;
     let cancelled = false;
-    setLoading(true);
-    setError(false);
     foldersApi.list()
       .then((items) => { if (!cancelled) setFolders(items); })
       .catch(() => { if (!cancelled) setError(true); })

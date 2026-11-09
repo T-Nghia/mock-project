@@ -47,9 +47,17 @@ function FolderManager() {
   const allFolders = flatten(tree);
   const selected = allFolders.find((node) => node.id === selectedId);
 
+  function refreshTree() { setLoadingTree(true); setTreeError(false); return loadTree(); }
+  const requestKey = `${selectedId}:${docsAttempt}`;
+  const [previousRequest, setPreviousRequest] = useState(requestKey);
+  if (previousRequest !== requestKey) {
+    setPreviousRequest(requestKey);
+    setLoadingDocs(!!selectedId);
+    setDocsError(false);
+  }
+
   const loadTree = useCallback(async () => {
     const ticket = ++treeRequest.current;
-    setLoadingTree(true); setTreeError(false);
     try {
       const data = await foldersApi.tree();
       if (ticket !== treeRequest.current) return;
@@ -62,7 +70,6 @@ function FolderManager() {
   useEffect(() => {
     if (!selectedId) return;
     let cancelled = false;
-    setLoadingDocs(true); setDocsError(false);
     foldersApi.documents(selectedId, false)
       .then((items) => { if (!cancelled) setDocuments({ id: selectedId, items }); })
       .catch(() => { if (!cancelled) setDocsError(true); })
@@ -75,7 +82,7 @@ function FolderManager() {
     if (mode === "create") await foldersApi.create({ ...data, parent_folder_id: parent?.id ?? null });
     else if (initial) await foldersApi.update(initial.id, data);
     toast({ title: mode === "create" ? "Đã tạo thư mục" : "Đã cập nhật thư mục", variant: "success" });
-    await loadTree();
+    await refreshTree();
   }
   async function remove() {
     if (!deleteTarget) return;
@@ -86,7 +93,7 @@ function FolderManager() {
     const prune = (nodes: FolderTreeNode[]): FolderTreeNode[] => nodes.filter((node) => !removed.has(node.id)).map((node) => ({ ...node, children: prune(node.children) }));
     setTree((previous) => prune(previous));
     toast({ title: "Đã xoá thư mục", variant: "success" });
-    await loadTree();
+    await refreshTree();
   }
   async function move(documentId: string, destination: string) {
     if (moveLock.current || destination === selectedId) return;
@@ -102,7 +109,7 @@ function FolderManager() {
   return <div className="space-y-6">
     <header className="flex flex-wrap items-start justify-between gap-4"><div><p className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Sắp xếp kiến thức</p><h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Thư mục của bạn</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Tổ chức tài liệu theo môn học và những chủ đề bạn quan tâm.</p></div><Button onClick={() => create(null)}><FolderPlus aria-hidden="true" className="h-4 w-4" />Tạo thư mục</Button></header>
     <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-      <Card className="min-w-0 p-3"><div className="flex items-center gap-2 border-b border-border px-2 pb-3"><FolderOpen aria-hidden="true" className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Cây thư mục</h3><span className="ml-auto text-xs text-muted-foreground">{allFolders.length}</span></div><div className="mt-3">{loadingTree && !tree.length ? <PageLoading label="Đang tải thư mục" /> : <>{treeError && <PageState title="Không tải được thư mục" description="Danh sách trước đó được giữ lại nếu có." retry={() => void loadTree()} />}{!treeError && !tree.length ? <PageState title="Chưa có thư mục nào" description="Tạo thư mục đầu tiên để bắt đầu sắp xếp tài liệu."><Button variant="outline" onClick={() => create(null)}>Tạo thư mục đầu tiên</Button></PageState> : <FolderTree nodes={tree} selectedId={selectedId} onSelect={(node) => setSelectedId(node.id)} onCreateChild={create} onRename={edit} onDelete={setDeleteTarget} />}{loadingTree && <p role="status" className="p-2 text-xs text-muted-foreground">Đang cập nhật thư mục…</p>}</>}</div></Card>
+      <Card className="min-w-0 p-3"><div className="flex items-center gap-2 border-b border-border px-2 pb-3"><FolderOpen aria-hidden="true" className="h-4 w-4 text-primary" /><h3 className="text-sm font-semibold">Cây thư mục</h3><span className="ml-auto text-xs text-muted-foreground">{allFolders.length}</span></div><div className="mt-3">{loadingTree && !tree.length ? <PageLoading label="Đang tải thư mục" /> : <>{treeError && <PageState title="Không tải được thư mục" description="Danh sách trước đó được giữ lại nếu có." retry={() => void refreshTree()} />}{!treeError && !tree.length ? <PageState title="Chưa có thư mục nào" description="Tạo thư mục đầu tiên để bắt đầu sắp xếp tài liệu."><Button variant="outline" onClick={() => create(null)}>Tạo thư mục đầu tiên</Button></PageState> : <FolderTree nodes={tree} selectedId={selectedId} onSelect={(node) => setSelectedId(node.id)} onCreateChild={create} onRename={edit} onDelete={setDeleteTarget} />}{loadingTree && <p role="status" className="p-2 text-xs text-muted-foreground">Đang cập nhật thư mục…</p>}</>}</div></Card>
       <section aria-label="Tài liệu trong thư mục" className="min-w-0 space-y-4">
         {!selected ? <PageState title="Chọn một thư mục" description="Chọn thư mục trong cây để xem và sắp xếp tài liệu bên trong." /> : <>
           <div className="rounded-xl border border-border bg-card p-5"><h3 className="break-words text-lg font-semibold">{selected.name}</h3>{selected.subject && <p className="mt-1 break-words text-sm text-muted-foreground">Môn học: {selected.subject}</p>}<p className="mt-3 text-xs leading-5 text-muted-foreground">Tài liệu trực tiếp trong thư mục này. Chọn thư mục con để xem nội dung của thư mục con.</p></div>

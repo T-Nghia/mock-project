@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,11 @@ export function CreateTeacherDialog({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const lock = useRef(false);
-  useEffect(() => { if (open) setError(null); }, [open]);
+  const [previousOpen, setPreviousOpen] = useState(open);
+  if (previousOpen !== open) {
+    setPreviousOpen(open);
+    if (open) setError(null);
+  }
   function close(value: boolean) { if (!lock.current) onOpenChange(value); }
 
   function update(key: keyof typeof form, value: string) {
