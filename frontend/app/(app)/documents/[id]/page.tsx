@@ -38,10 +38,16 @@ function DocumentWorkspace({ documentId }: { documentId: string }) {
   const [activePanel, setActivePanel] = useState("document");
   const [documentTab, setDocumentTab] = useState("reader");
 
-  useEffect(() => {
-    let cancelled = false;
+  const requestKey = `${documentId}:${attempt}`;
+  const [previousRequest, setPreviousRequest] = useState(requestKey);
+  if (previousRequest !== requestKey) {
+    setPreviousRequest(requestKey);
     setLoading(true);
     setError(null);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
     documentsApi.getMetadata(documentId)
       .then((metadata) => { if (!cancelled) setDoc(metadata); })
       .catch((err) => { if (!cancelled) setError(err instanceof ApiError ? err.message : "Không tải được tài liệu."); })

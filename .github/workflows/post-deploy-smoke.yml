@@ -20,7 +20,7 @@ concurrency:
 jobs:
   smoke:
     if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: ${{ github.event.deployment.environment || 'staging' }}
     env:
@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24.22.2"
       - name: Validate smoke test configuration
         shell: bash
         run: |

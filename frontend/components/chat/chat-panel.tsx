@@ -31,9 +31,18 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
   const messageListRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const operationRef = useRef(false);
+  const messageSequence = useRef(0);
   const mountedRef = useRef(false);
   const draftsRef = useRef<Record<string, string>>({});
   const busy = initializing || switching || asking;
+
+  const requestKey = `${documentId}:${attempt}`;
+  const [previousRequest, setPreviousRequest] = useState(requestKey);
+  if (previousRequest !== requestKey) {
+    setPreviousRequest(requestKey);
+    setInitializing(true);
+    setInitialError(null);
+  }
 
   useEffect(() => {
     mountedRef.current = true;
@@ -42,8 +51,6 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
 
   useEffect(() => {
     let cancelled = false;
-    setInitializing(true);
-    setInitialError(null);
     async function initialize() {
       try {
         const list = await chatApi.listSessionsForDocument(documentId);
@@ -138,7 +145,11 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
     }
   }
 
-  async function sendQuestion(content: string) {
+  function handleSuggestedQuestion(event: React.MouseEvent<HTMLButtonElement>) {
+    void handleSendQuestion(event.currentTarget.value);
+  }
+
+  async function handleSendQuestion(content: string) {
     const trimmed = content.trim();
     if (!trimmed || busy || initialError || operationRef.current) return;
     // A synchronous lock also covers rapid clicks before React re-renders.
@@ -146,7 +157,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
     setAsking(true);
     setError(null);
     const userMessage: ChatMessage = {
-      id: `local-${Date.now()}`, role: "user", content: trimmed, sources: [], created_at: new Date().toISOString(),
+      id: `local-${++messageSequence.current}`, role: "user", content: trimmed, sources: [], created_at: new Date().toISOString(),
     };
     let targetId = sessionId;
     try {
@@ -157,10 +168,11 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
       draftsRef.current[targetId] = "";
       const answer = await chatApi.ask(targetId, trimmed);
       if (!mountedRef.current) return;
-      setMessages((prev) => [...prev, {
-        id: `local-${Date.now()}-a`, role: "assistant", content: answer.answer,
+      const assistantMessage: ChatMessage = {
+        id: `local-${++messageSequence.current}-a`, role: "assistant", content: answer.answer,
         sources: answer.sources, created_at: new Date().toISOString(),
-      }]);
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
       if (!mountedRef.current) return;
       reportError("Không lấy được câu trả lời", err);
@@ -254,7 +266,7 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
                 <p className="mb-6 mt-2 max-w-xs text-sm leading-6 text-muted-foreground">Đặt câu hỏi, tìm ý chính và khám phá nội dung dựa trên tài liệu của bạn.</p>
                 {suggestedQuestions.length > 0 && <div className="w-full space-y-2 text-left">
                   <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Gợi ý bắt đầu</p>
-                  {suggestedQuestions.map((question, index) => <button key={index} onClick={() => sendQuestion(question)} disabled={busy} className="group flex w-full items-start gap-3 rounded-lg border border-border p-3 text-left text-sm leading-6 transition-colors hover:border-primary/30 hover:bg-primary/5 disabled:opacity-50"><span className="min-w-0 flex-1 break-words">{question}</span><ArrowUpRight aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" /></button>)}
+                  {suggestedQuestions.map((question, index) => <button key={index} value={question} onClick={handleSuggestedQuestion} disabled={busy} className="group flex w-full items-start gap-3 rounded-lg border border-border p-3 text-left text-sm leading-6 transition-colors hover:border-primary/30 hover:bg-primary/5 disabled:opacity-50"><span className="min-w-0 flex-1 break-words">{question}</span><ArrowUpRight aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" /></button>)}
                 </div>}
               </div>
             )}
@@ -281,11 +293,11 @@ export function ChatPanel({ documentId, suggestedQuestions }: ChatPanelProps) {
         )}
       </div>
 
-      <form onSubmit={(event) => { event.preventDefault(); void sendQuestion(input); }} className="shrink-0 border-t border-border bg-card p-3 sm:p-4">
+      <form onSubmit={(event) => { event.preventDefault(); void handleSendQuestion(input); }} className="shrink-0 border-t border-border bg-card p-3 sm:p-4">
         <div className="rounded-xl border border-input bg-background p-2 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10">
           <Textarea ref={inputRef} aria-label="Câu hỏi cho trợ lý AI" value={input} onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendQuestion(input); }
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void handleSendQuestion(input); }
             }}
             placeholder="Hỏi điều gì đó về tài liệu này…" rows={2} className="min-h-14 resize-none border-0 bg-transparent px-2 shadow-none focus-visible:ring-0" disabled={busy || !!initialError} />
           <div className="flex items-center justify-between gap-2 px-1 pb-1">

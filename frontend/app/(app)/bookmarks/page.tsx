@@ -20,9 +20,16 @@ export default function BookmarksPage() {
   const [error, setError] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const lock = useRef(false);
+  const requestKey = `${page}:${attempt}`;
+  const [previousRequest, setPreviousRequest] = useState(requestKey);
+  if (previousRequest !== requestKey) {
+    setPreviousRequest(requestKey);
+    setLoading(true);
+    setError(false);
+  }
+
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setError(false);
     socialApi.listMyBookmarks(page, 20)
       .then((res) => { if (!cancelled) setData(res); })
       .catch(() => { if (!cancelled) setError(true); })

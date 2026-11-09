@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -23,6 +23,8 @@ function pageTitle(pathname: string): string {
   return TITLES.find((t) => t.match(pathname))?.title ?? "SLRMS";
 }
 
+const subscribeHydration = () => () => {};
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -30,19 +32,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const documentWorkspace = /^\/documents\/[^/]+$/.test(pathname) && pathname !== "/documents/upload";
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const hydrated = useSyncExternalStore(subscribeHydration, () => true, () => false);
+  const [preferenceLoaded, setPreferenceLoaded] = useState(false);
+  const [previousPath, setPreviousPath] = useState(pathname);
 
-  useEffect(() => {
+  if (hydrated && !preferenceLoaded) {
+    setPreferenceLoaded(true);
     // A layout preference only; authentication stays in AuthProvider.
     try {
       setCollapsed(localStorage.getItem("slrms.sidebar.collapsed") === "true");
     } catch {
       // Navigation remains usable when browser storage is unavailable.
     }
-  }, []);
+  }
 
-  useEffect(() => {
+  if (previousPath !== pathname) {
+    setPreviousPath(pathname);
     setMobileOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 1024px)");

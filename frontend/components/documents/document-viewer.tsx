@@ -23,15 +23,18 @@ export function DocumentViewer({ documentId, fileType, onDownload }: DocumentVie
   const ext = fileType.toLowerCase().replace(/^\./, "");
   const canView = VIEWABLE_INLINE.has(ext);
 
-  useEffect(() => {
-    setLoading(true);
+  const requestKey = `${documentId}:${ext}:${attempt}`;
+  const [previousRequest, setPreviousRequest] = useState(requestKey);
+  if (previousRequest !== requestKey) {
+    setPreviousRequest(requestKey);
+    setLoading(canView);
     setError(null);
     setObjectUrl(null);
     setTextContent(null);
-    if (!canView) {
-      setLoading(false);
-      return;
-    }
+  }
+
+  useEffect(() => {
+    if (!canView) return;
 
     let cancelled = false;
     let createdUrl: string | null = null;

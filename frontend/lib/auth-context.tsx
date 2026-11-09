@@ -21,31 +21,30 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+async function currentUser(): Promise<User | null> {
+  if (!tokenStore.getAccess() && !(await authApi.refresh())) return null;
+  try {
+    return await authApi.me();
+  } catch {
+    tokenStore.clear();
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   const refreshUser = useCallback(async () => {
-    if (!tokenStore.getAccess()) {
-      const refreshed = await authApi.refresh();
-      if (!refreshed) {
-        setUser(null);
-        return;
-      }
-    }
-    try {
-      const me = await authApi.me();
-      setUser(me);
-    } catch {
-      tokenStore.clear();
-      setUser(null);
-    }
+    setUser(await currentUser());
   }, []);
 
   useEffect(() => {
-    refreshUser().finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    currentUser().then((me) => { if (!cancelled) setUser(me); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {

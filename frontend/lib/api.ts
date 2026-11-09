@@ -82,6 +82,17 @@ async function doRefresh(): Promise<boolean> {
   }
 }
 
+// Bootstrap (including StrictMode effects) and 401 recovery must share the same
+// in-flight request: the backend rotates each HttpOnly refresh token once.
+function refreshAccessToken(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = doRefresh().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
 interface RequestOptions {
   method?: string;
   body?: unknown;
@@ -126,12 +137,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   let res = await doFetch();
 
   if (res.status === 401 && auth) {
-    if (!refreshPromise) {
-      refreshPromise = doRefresh().finally(() => {
-        refreshPromise = null;
-      });
-    }
-    const refreshed = await refreshPromise;
+    const refreshed = await refreshAccessToken();
     if (refreshed) {
       res = await doFetch();
     }
@@ -161,7 +167,7 @@ export const authApi = {
     return request<TokenResponse>("/auth/login", { method: "POST", body: data, auth: false });
   },
   refresh() {
-    return doRefresh();
+    return refreshAccessToken();
   },
   me() {
     return request<User>("/auth/me");

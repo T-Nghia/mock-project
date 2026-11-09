@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./dialog";
 import { Button } from "./button";
 import { FormError, formError } from "@/components/auth/form-error";
@@ -11,7 +11,11 @@ export function ConfirmActionDialog({ open, onOpenChange, title, description, la
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lock = useRef(false);
-  useEffect(() => { if (open) setError(null); }, [open]);
+  const [previousOpen, setPreviousOpen] = useState(open);
+  if (previousOpen !== open) {
+    setPreviousOpen(open);
+    if (open) setError(null);
+  }
   function close(value: boolean) { if (!lock.current) onOpenChange(value); }
   async function confirm() {
     if (lock.current) return;
