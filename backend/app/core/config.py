@@ -1,4 +1,4 @@
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -32,6 +32,24 @@ class Settings(BaseSettings):
     STORAGE_REGION: str = "auto"
     STORAGE_ACCESS_KEY_ID: str = ""
     STORAGE_SECRET_ACCESS_KEY: str = ""
+    CLEANUP_POLL_SECONDS: float = Field(default=5, gt=0, le=60)
+    CLEANUP_LEASE_SECONDS: int = Field(default=120, ge=1, le=86400)
+    CLEANUP_CONNECT_TIMEOUT_SECONDS: float = Field(default=5, gt=0, le=60)
+    CLEANUP_READ_TIMEOUT_SECONDS: float = Field(default=15, gt=0, le=60)
+    CLEANUP_RETRY_BASE_SECONDS: int = Field(default=30, ge=1, le=3600)
+    CLEANUP_RETRY_MAX_SECONDS: int = Field(default=3600, ge=1, le=86400)
+    CLEANUP_ENABLED: bool = False
+    DOCUMENT_DELETE_ENABLED: bool = False
+    DOCUMENT_MUTATIONS_ENABLED: bool = True
+    DOCUMENT_DELETE_RETRY_AFTER_SECONDS: int = Field(default=300, ge=1, le=86400)
+    CLEANUP_CERTIFICATE_FILE: str = ""
+    CLEANUP_CERTIFICATE_MAX_AGE_SECONDS: int = Field(default=86400, ge=60, le=604800)
+    CLEANUP_HEARTBEAT_FILE: str = ""
+    CLEANUP_SHUTDOWN_BUDGET_SECONDS: int = Field(default=180, ge=30, le=86400)
+    CLEANUP_METRICS_LIMIT: int = Field(default=10000, ge=1, le=100000)
+    CLEANUP_METRICS_CACHE_SECONDS: int = Field(default=30, ge=1, le=300)
+    CLEANUP_BACKLOG_WARNING_SECONDS: int = Field(default=900, ge=1)
+    CLEANUP_BACKLOG_CRITICAL_SECONDS: int = Field(default=86400, ge=1)
     DOCUMENT_PROCESSING_MODE: str = "background"
     CELERY_BROKER_URL: str = ""
     DOCUMENT_TASK_MAX_RETRIES: int = 5
@@ -105,6 +123,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "ignore"
+        hide_input_in_errors = True
 
 
 settings = Settings()

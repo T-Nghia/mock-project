@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.core.config import settings
+from app.core.maintenance import DocumentMaintenanceMiddleware
 from app.core.database import SessionLocal
 from app.core.redis_client import redis_client
 from app import models  # noqa: F401 - register SQLAlchemy models
@@ -16,6 +17,7 @@ from app.api.routers.chat import router as chat_router
 
 
 app = FastAPI(title=settings.APP_NAME)
+app.add_middleware(DocumentMaintenanceMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -79,6 +81,11 @@ def metrics():
         f'slrms_documents_total{{status="{getattr(state, "value", state)}"}} {count}'
         for state, count in rows
     )
-    return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+    from app.services.cleanup_operations import cached_queue_metrics
+    try:
+        cleanup = cached_queue_metrics(SessionLocal)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Cleanup metrics unavailable") from exc
+    return Response("\n".join(lines) + "\n" + cleanup, media_type="text/plain; version=0.0.4")
 
 

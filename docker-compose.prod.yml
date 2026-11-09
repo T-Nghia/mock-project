@@ -43,6 +43,14 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     env_file: !reset []
     environment: !override
+      DOCUMENT_DELETE_ENABLED: ${DOCUMENT_DELETE_ENABLED:-false}
+      DOCUMENT_MUTATIONS_ENABLED: ${DOCUMENT_MUTATIONS_ENABLED:-true}
+      CLEANUP_CERTIFICATE_FILE: /run/slrms/cleanup-target.json
+      CLEANUP_CERTIFICATE_MAX_AGE_SECONDS: ${CLEANUP_CERTIFICATE_MAX_AGE_SECONDS:-86400}
+      CLEANUP_METRICS_LIMIT: ${CLEANUP_METRICS_LIMIT:-10000}
+      CLEANUP_METRICS_CACHE_SECONDS: ${CLEANUP_METRICS_CACHE_SECONDS:-30}
+      CLEANUP_BACKLOG_WARNING_SECONDS: ${CLEANUP_BACKLOG_WARNING_SECONDS:-900}
+      CLEANUP_BACKLOG_CRITICAL_SECONDS: ${CLEANUP_BACKLOG_CRITICAL_SECONDS:-86400}
       ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
@@ -70,10 +78,11 @@ services:
       GEMINI_EMBEDDING_BATCH_TOKENS: ${GEMINI_EMBEDDING_BATCH_TOKENS:-27000}
       GEMINI_EMBEDDING_CHUNK_TOKENS: ${GEMINI_EMBEDDING_CHUNK_TOKENS:-500}
       GEMINI_EMBEDDING_CHUNK_OVERLAP_TOKENS: ${GEMINI_EMBEDDING_CHUNK_OVERLAP_TOKENS:-80}
-    ports:
-      - "8000:8000"
+    ports: !override
+      - "127.0.0.1:8000:8000"
     volumes: !override
       - uploads_data:/app/uploads
+      - ${CLEANUP_CERTIFICATE_HOST_FILE:-./deploy/cleanup/unverified.json}:/run/slrms/cleanup-target.json:ro
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8000/health/ready"]
       interval: 15s
@@ -133,6 +142,22 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+
+  cleanup:
+    volumes: !override
+      - ${CLEANUP_CERTIFICATE_HOST_FILE:-./deploy/cleanup/unverified.json}:/run/slrms/cleanup-target.json:ro
+    environment:
+      ENV: production
+      REFRESH_COOKIE_SECURE: "true"
+      REFRESH_COOKIE_SAMESITE: none
+      AUTH_RATE_LIMIT_ENABLED: "true"
+      DOCUMENT_PROCESSING_MODE: celery
+      STORAGE_BACKEND: s3
+      STORAGE_BUCKET: ${STORAGE_BUCKET:?STORAGE_BUCKET is required}
+      STORAGE_ENDPOINT_URL: ${STORAGE_ENDPOINT_URL:-}
+      STORAGE_REGION: ${STORAGE_REGION:-auto}
+      STORAGE_ACCESS_KEY_ID: ${CLEANUP_STORAGE_ACCESS_KEY_ID:-${STORAGE_ACCESS_KEY_ID:?STORAGE_ACCESS_KEY_ID is required}}
+      STORAGE_SECRET_ACCESS_KEY: ${CLEANUP_STORAGE_SECRET_ACCESS_KEY:-${STORAGE_SECRET_ACCESS_KEY:?STORAGE_SECRET_ACCESS_KEY is required}}
 
   frontend:
     build:

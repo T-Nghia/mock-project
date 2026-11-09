@@ -1,6 +1,7 @@
 import os
 import unittest
 import uuid
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -260,6 +261,120 @@ class ChatServiceTestCase(unittest.TestCase):
         self.assertEqual(provider_error.exception.status_code, 503)
         messages = self.db.query(ChatMessage).all()
         self.assertEqual([message.role for message in messages], ["user"])
+
+    def test_provider_receives_history_without_open_transaction(self):
+        document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
+        chunk = RetrievedChunk(
+            chunk_id=uuid.uuid4(), document_id=document.id, chunk_index=0,
+            content="Context", score=0.9,
+        )
+        service, _, provider = self.service(chunks=[chunk])
+        session = service.create_session(document_id=document.id, current_user=self.user)
+        service.chat_repo.add_message(session_id=session.id, role="user", content="Old question")
+        service.chat_repo.add_message(session_id=session.id, role="assistant", content="Old answer")
+
+        def generate(**kwargs):
+            self.assertFalse(self.db.in_transaction())
+            self.assertEqual(
+                [(message.role, message.content) for message in kwargs["history"]],
+                [("user", "Old question"), ("assistant", "Old answer")],
+            )
+            self.assertFalse(self.db.in_transaction(), "History unexpectedly reloaded ORM state")
+            return GeneratedAnswer(content="New answer", grounded=True, source_chunk_indexes=[0])
+
+        with patch.object(provider, "answer", side_effect=generate):
+            response = service.ask(session_id=session.id, content="New question", current_user=self.user)
+        self.assertEqual(response.answer, "New answer")
+        self.assertFalse(self.db.in_transaction())
+
+    def test_document_deleted_during_provider_cannot_save_stale_assistant(self):
+        document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
+        document_id = document.id
+        chunk = RetrievedChunk(
+            chunk_id=uuid.uuid4(), document_id=document_id, chunk_index=0,
+            content="Context", score=0.9,
+        )
+        service, _, provider = self.service(chunks=[chunk])
+        session = service.create_session(document_id=document_id, current_user=self.user)
+        session_id = session.id
+
+        def generate(**_kwargs):
+            self.assertFalse(self.db.in_transaction())
+            self.db.query(ChatSession).filter(ChatSession.id == session_id).update(
+                {ChatSession.document_id: None}, synchronize_session=False,
+            )
+            self.db.query(Document).filter(Document.id == document_id).delete(synchronize_session=False)
+            self.db.commit()
+            return GeneratedAnswer(content="Stale answer", grounded=True, source_chunk_indexes=[0])
+
+        with patch.object(provider, "answer", side_effect=generate):
+            with self.assertRaises(HTTPException) as raised:
+                service.ask(session_id=session_id, content="Question", current_user=self.user)
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual([message.role for message in self.db.query(ChatMessage).all()], ["user"])
+        self.assertIsNone(self.db.get(ChatSession, session_id).document_id)
+
+    def test_document_deleted_during_retrieval_prevents_provider_call(self):
+        document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
+        document_id = document.id
+        service, retriever, provider = self.service()
+        session = service.create_session(document_id=document_id, current_user=self.user)
+        session_id = session.id
+
+        def retrieve(**_kwargs):
+            self.assertFalse(self.db.in_transaction())
+            self.db.query(ChatSession).filter(ChatSession.id == session_id).update(
+                {ChatSession.document_id: None}, synchronize_session=False,
+            )
+            self.db.commit()
+            return [RetrievedChunk(
+                chunk_id=uuid.uuid4(), document_id=document_id, chunk_index=0,
+                content="Old context", score=0.9,
+            )]
+
+        with patch.object(retriever, "retrieve", side_effect=retrieve):
+            with self.assertRaises(HTTPException) as raised:
+                service.ask(session_id=session_id, content="Question", current_user=self.user)
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(provider.calls, [])
+
+    def test_session_deleted_during_provider_returns_404_without_assistant(self):
+        document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
+        service, _, provider = self.service(chunks=[RetrievedChunk(
+            chunk_id=uuid.uuid4(), document_id=document.id, chunk_index=0,
+            content="Context", score=0.9,
+        )])
+        session = service.create_session(document_id=document.id, current_user=self.user)
+        session_id = session.id
+
+        def generate(**_kwargs):
+            self.assertFalse(self.db.in_transaction())
+            self.db.query(ChatMessage).filter(ChatMessage.session_id == session_id).delete()
+            self.db.query(ChatSession).filter(ChatSession.id == session_id).delete()
+            self.db.commit()
+            return GeneratedAnswer(content="Stale answer", grounded=True, source_chunk_indexes=[0])
+
+        with patch.object(provider, "answer", side_effect=generate):
+            with self.assertRaises(HTTPException) as raised:
+                service.ask(session_id=session_id, content="Question", current_user=self.user)
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(self.db.query(ChatMessage).count(), 0)
+
+    def test_retriever_failure_releases_transaction_and_keeps_accepted_question(self):
+        document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
+        service, retriever, provider = self.service()
+        session = service.create_session(document_id=document.id, current_user=self.user)
+
+        def fail_retrieval(**_kwargs):
+            self.db.query(ChatMessage).all()  # exercise an actual read transaction
+            raise RuntimeError("retrieval failed")
+
+        with patch.object(retriever, "retrieve", side_effect=fail_retrieval):
+            with self.assertRaisesRegex(RuntimeError, "retrieval failed"):
+                service.ask(session_id=session.id, content="Question", current_user=self.user)
+        self.assertFalse(self.db.in_transaction())
+        self.assertEqual(provider.calls, [])
+        self.assertEqual([message.role for message in self.db.query(ChatMessage).all()], ["user"])
 
 
 if __name__ == "__main__":

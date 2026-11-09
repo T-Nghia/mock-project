@@ -23,14 +23,28 @@ class FakeDocumentRepository:
             return self.document
         return None
 
+    def is_present(self, document_id):
+        return self.document is not None and self.document.id == document_id
+
+    def start_processing(self, document_id):
+        if not self.is_present(document_id):
+            return None
+        if self.document.processing_status != ProcessingStatus.DONE:
+            self.update_status(document_id, ProcessingStatus.PROCESSING)
+            self.chunks.clear()
+        return self.document
+
     def update_status(
         self,
-        document,
+        document_id,
         status,
         summary=None,
         suggested_questions=None,
         last_error=None,
     ):
+        if not self.is_present(document_id):
+            return False
+        document = self.document
         document.processing_status = status
         document.processing_last_error = last_error
         if summary is not None:
@@ -38,11 +52,14 @@ class FakeDocumentRepository:
         if suggested_questions is not None:
             document.suggested_questions = suggested_questions
         self.statuses.append(status)
-        return document
+        return True
 
-    def add_chunks(self, chunks):
+    def add_chunks(self, document_id, chunks):
+        if not self.is_present(document_id):
+            return False
         self.chunk_batches.append(chunks)
         self.chunks.extend(chunks)
+        return True
 
 
 class FakeEmbeddingProvider:

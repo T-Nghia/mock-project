@@ -6,8 +6,17 @@ on:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
       postgres:
         image: pgvector/pgvector:pg16
         env:
@@ -28,6 +37,10 @@ jobs:
       ENV: test
       DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
       UPLOAD_FOLDER_TEST_DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
+      DELETE_TEST_DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
+      CLEANUP_TEST_DATABASE_URL: postgresql+psycopg2://slrms:ci-password@localhost:5432/slrms_test
+      REDIS_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: redis://localhost:6379/0
       JWT_SECRET_KEY: ci-only-secret
       CI_MINIO_CONTAINER: slrms-ci-minio-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
@@ -45,10 +58,17 @@ jobs:
         run: >-
           mypy app/core/config.py app/core/rate_limit.py app/models/document.py
           app/repositories/document_repo.py app/services/document_service.py
+          app/models/storage_cleanup.py app/repositories/storage_cleanup_repo.py
+          app/services/document_deletion_service.py
+          app/services/storage_cleanup_service.py app/cleanup_worker.py
+          app/core/maintenance.py app/services/cleanup_operations.py app/cleanup_operator.py
+          app/storage_certification.py app/storage_backup.py app/cleanup_health.py
+          app/services/chat_service.py app/repositories/chat_repo.py app/schemas/chat.py
           app/services/storage.py app/services/document_dispatcher.py
           app/tasks/document_processing.py app/worker.py
           --ignore-missing-imports --check-untyped-defs --explicit-package-bases
       - run: alembic upgrade head
+      - run: alembic check
       - run: coverage run --source=app -m unittest discover -s tests -p "test_*.py" -v
       - run: coverage report --fail-under=70
       - name: Start MinIO
@@ -99,6 +119,112 @@ jobs:
           if not result.wasSuccessful() or result.testsRun == 0 or result.skipped:
               sys.exit("S3 integration tests must pass without skips")
           PY
+      - name: Test storage reliability and real Celery redelivery
+        env:
+          RUN_RELIABILITY_INTEGRATION: "1"
+          RUN_CELERY_INTEGRATION: "1"
+          STORAGE_BACKEND: s3
+          STORAGE_BUCKET: slrms-ci-reliability-${{ github.run_id }}-${{ github.run_attempt }}
+          STORAGE_ENDPOINT_URL: http://127.0.0.1:9000
+          STORAGE_REGION: us-east-1
+        run: |
+          python - <<'PY'
+          import sys
+          import unittest
+
+          suite = unittest.defaultTestLoader.loadTestsFromNames([
+              "tests.integration.test_storage_reliability",
+              "tests.integration.test_celery_redelivery",
+              "tests.integration.test_local_reliability",
+              "tests.test_storage_cleanup.LocalDeletionContractTestCase",
+          ])
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.testsRun == 0 or result.skipped:
+              sys.exit("Reliability integration tests must pass without skips")
+          PY
+      - name: Test cleanup with Redis and Celery stopped
+        env:
+          CI_REDIS_CONTAINER: ${{ job.services.redis.id }}
+          RUN_BROKER_DOWN_INTEGRATION: "1"
+          STORAGE_BACKEND: s3
+          STORAGE_BUCKET: slrms-ci-independent-${{ github.run_id }}-${{ github.run_attempt }}
+          STORAGE_ENDPOINT_URL: http://127.0.0.1:9000
+          STORAGE_REGION: us-east-1
+        run: |
+          set -euo pipefail
+          docker stop "$CI_REDIS_CONTAINER" >/dev/null
+          trap 'docker start "$CI_REDIS_CONTAINER" >/dev/null' EXIT
+          python - <<'PY'
+          import sys
+          import unittest
+
+          suite = unittest.defaultTestLoader.loadTestsFromName("tests.integration.test_cleanup_independence")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.testsRun == 0 or result.skipped:
+              sys.exit("Broker-independent cleanup must pass without skips")
+          PY
+      - name: Install pinned Caddy proxy test binary
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          caddy_dir="$RUNNER_TEMP/slrms-caddy-2.10.2"
+          mkdir -p "$caddy_dir"
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 120 \
+            https://github.com/caddyserver/caddy/releases/download/v2.10.2/caddy_2.10.2_linux_amd64.tar.gz \
+            --output "$caddy_dir/caddy.tar.gz"
+          printf '%s  %s\n' 5c218bc34c9197369263da7e9317a83acdbd80ef45d94dca5eff76e727c67cdd "$caddy_dir/caddy.tar.gz" | sha256sum --check -
+          tar -xzf "$caddy_dir/caddy.tar.gz" --directory "$caddy_dir" caddy
+          echo "CADDY_TEST_BINARY=$caddy_dir/caddy" >> "$GITHUB_ENV"
+      - name: Test operational recovery and real backup restore
+        env:
+          PG_TEST_CONTAINER: ${{ job.services.postgres.id }}
+          RUN_CADDY_INTEGRATION: "1"
+          RUN_RELIABILITY_INTEGRATION: "1"
+          STORAGE_BACKEND: s3
+          STORAGE_BUCKET: slrms-ci-operations-${{ github.run_id }}-${{ github.run_attempt }}
+          STORAGE_ENDPOINT_URL: http://127.0.0.1:9000
+          STORAGE_REGION: us-east-1
+        run: |
+          python - <<'PY'
+          import sys
+          import unittest
+
+          suite = unittest.defaultTestLoader.loadTestsFromNames([
+              "tests.integration.test_cleanup_operations",
+              "tests.integration.test_cleanup_rollout",
+              "tests.integration.test_storage_backup",
+              "tests.test_cleanup_rollout",
+              "tests.integration.test_cleanup_proxy",
+          ])
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.testsRun < 35 or result.skipped:
+              sys.exit("Operational recovery tests must pass without skips")
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.2"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+      - name: Install real browser acceptance dependencies
+        working-directory: .
+        run: |
+          npm ci --prefix frontend --no-audit --no-fund
+          npm ci --prefix e2e --no-audit --no-fund
+          cd e2e
+          npx playwright install --with-deps chromium
+      - name: Real backend browser acceptance
+        working-directory: .
+        timeout-minutes: 8
+        env:
+          RUN_OPERATIONAL_E2E: "1"
+          STORAGE_BACKEND: s3
+          STORAGE_BUCKET: slrms-ci-browser-unused
+          STORAGE_ENDPOINT_URL: http://127.0.0.1:9000
+          STORAGE_REGION: us-east-1
+        run: python scripts/test/operational_acceptance.py
       - name: MinIO logs on failure
         if: failure()
         run: |
@@ -247,7 +373,7 @@ jobs:
         run: docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.staging.yml config --quiet
       - name: Assert private infrastructure and no source bind mounts
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --format json > /tmp/compose.json
+          docker compose --profile cleanup -f docker-compose.yml -f docker-compose.prod.yml config --format json > /tmp/compose.json
           python - <<'PY'
           import json
           config = json.load(open('/tmp/compose.json'))
@@ -255,9 +381,21 @@ jobs:
               assert not config['services'][name].get('ports'), f'{name} exposes host ports'
           for port in config['services']['frontend'].get('ports', []):
               assert port.get('host_ip') == '127.0.0.1', 'frontend bypasses ingress publicly'
-          for name in ('migrate', 'backend', 'worker'):
+          backend_ports = config['services']['backend'].get('ports', [])
+          assert len(backend_ports) == 1, 'backend must publish exactly one port'
+          assert backend_ports[0].get('host_ip') == '127.0.0.1', 'backend bypasses ingress publicly'
+          assert str(backend_ports[0].get('published')) == '8000', 'unexpected backend published port'
+          assert backend_ports[0].get('target') == 8000, 'unexpected backend target port'
+          assert backend_ports[0].get('protocol') == 'tcp', 'unexpected backend port protocol'
+          for name in ('migrate', 'backend', 'worker', 'cleanup'):
               for volume in config['services'][name].get('volumes', []):
-                  assert volume.get('type') != 'bind', f'{name} contains a bind mount'
+                  if volume.get('type') == 'bind':
+                      assert volume['target'] == '/run/slrms/cleanup-target.json' and volume.get('read_only'), f'{name} contains an unexpected bind mount'
+          cleanup = config['services']['cleanup']
+          assert cleanup['profiles'] == ['cleanup']
+          assert set(cleanup['depends_on']) <= {'db', 'migrate'}
+          assert cleanup['environment']['CLEANUP_ENABLED'] == 'false'
+          assert config['services']['backend']['environment']['DOCUMENT_DELETE_ENABLED'] == 'false'
           PY
       - name: Build production images
-        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend worker frontend
+        run: docker compose --profile cleanup -f docker-compose.yml -f docker-compose.prod.yml build backend worker cleanup frontend

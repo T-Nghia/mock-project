@@ -1,4 +1,6 @@
 import mimetypes
+import logging
+from enum import Enum
 from pathlib import Path
 import time
 import uuid
@@ -33,6 +35,13 @@ from app.utils.text_chunking import (
 
 
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt", "pptx", "jpg", "jpeg", "png"}
+logger = logging.getLogger(__name__)
+
+
+class ProcessingOutcome(str, Enum):
+    PROCESSED = "processed"
+    DOCUMENT_DELETED = "document_deleted"
+    ALREADY_DONE = "already_done"
 
 # Fallback MIME map cho các định dạng mimetypes có thể đoán sai/thiếu trên một số OS
 EXTENSION_MIME_OVERRIDES = {
@@ -171,26 +180,6 @@ class DocumentService:
         """
         return self.get_file_for_download(document_id)
 
-    def delete_document(self, document_id: uuid.UUID, current_user) -> None:
-        """Xóa tài liệu (record DB + file vật lý trên đĩa).
-
-        Chỉ người đã tải tài liệu lên (chủ sở hữu) hoặc Admin mới được xóa.
-        Các dữ liệu liên quan (chunks, tags, chat sessions, bookmark, comment,
-        rating) đã được cấu hình ON DELETE CASCADE/SET NULL ở DB nên sẽ tự dọn theo.
-        """
-        document = self._get_document_or_404(document_id)
-
-        is_owner = document.uploaded_by == current_user.id
-        is_admin = current_user.role == UserRole.ADMIN
-        if not is_owner and not is_admin:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bạn chỉ có thể xóa tài liệu do chính mình tải lên.",
-            )
-
-        self.doc_repo.delete(document)
-        self.storage.delete(document.file_path)
-
     def save_upload(
         self,
         file: UploadFile,
@@ -254,7 +243,12 @@ class DocumentService:
         try:
             document = self.doc_repo.create(document)
         except Exception as exc:
-            self.storage.delete(file_location)
+            try:
+                self.storage.delete(file_location)
+            except Exception as cleanup_error:
+                # Preserve the upload failure. Exception text/locations may
+                # contain credentials; log only the separate failure class.
+                logger.error("upload_compensation_failed error_type=%s", type(cleanup_error).__name__)
             # PostgreSQL's constraint name comes from the existing Alembic schema.
             # Other integrity/driver errors must retain their original meaning.
             if (
@@ -285,19 +279,18 @@ class DocumentService:
         document_id: uuid.UUID,
         *,
         mark_failed_on_error: bool = True,
-    ) -> None:
+    ) -> ProcessingOutcome:
         """Chạy ngầm (Worker task): Extract text -> Chunk -> Embed -> Summarize."""
-        document = self.doc_repo.get_by_id(document_id)
+        document = self.doc_repo.start_processing(document_id)
         if not document:
-            return
+            return ProcessingOutcome.DOCUMENT_DELETED
 
         if document.processing_status == ProcessingStatus.DONE:
-            return
-        self.doc_repo.update_status(document, ProcessingStatus.PROCESSING)
-        if hasattr(self.doc_repo, "delete_chunks"):
-            self.doc_repo.delete_chunks(document.id)
+            return ProcessingOutcome.ALREADY_DONE
 
         try:
+            if not self.doc_repo.is_present(document_id):
+                return ProcessingOutcome.DOCUMENT_DELETED
             with self.storage.materialize(
                 document.file_path,
                 suffix=f".{document.file_type}",
@@ -331,6 +324,8 @@ class DocumentService:
                     )
                 )
                 for batch_index, (batch_start, batch) in enumerate(batches):
+                    if not self.doc_repo.is_present(document_id):
+                        return ProcessingOutcome.DOCUMENT_DELETED
                     batch_texts = [
                         chunk.content if hasattr(chunk, "content") else chunk for chunk in batch
                     ]
@@ -338,7 +333,8 @@ class DocumentService:
                         batch_texts,
                         task_type="RETRIEVAL_DOCUMENT",
                     )
-                    self.doc_repo.add_chunks(
+                    if not self.doc_repo.add_chunks(
+                        document_id,
                         [
                             DocumentChunk(
                                 document_id=document.id,
@@ -353,34 +349,51 @@ class DocumentService:
                             )
                             for index, (chunk, vector) in enumerate(zip(batch, vectors))
                         ]
-                    )
+                    ):
+                        return ProcessingOutcome.DOCUMENT_DELETED
                     if batch_index < len(batches) - 1:
                         self.sleep(60)
             finally:
                 if owns_provider:
                     provider.close()
 
+            if not self.doc_repo.is_present(document_id):
+                return ProcessingOutcome.DOCUMENT_DELETED
             suggested_questions = generate_suggested_questions(text, n=3)
+            if not self.doc_repo.is_present(document_id):
+                return ProcessingOutcome.DOCUMENT_DELETED
             summary = generate_summary(text, title=document.title)
-            self.doc_repo.update_status(
-                document,
+            if not self.doc_repo.update_status(
+                document_id,
                 ProcessingStatus.DONE,
                 summary=summary,
                 suggested_questions=suggested_questions,
-            )
+            ):
+                return ProcessingOutcome.DOCUMENT_DELETED
+            return ProcessingOutcome.PROCESSED
 
         except Exception as e:
             # Cập nhật trạng thái FAILED nếu có lỗi xử lý
             if mark_failed_on_error:
-                try:
-                    self.doc_repo.update_status(
-                        document,
-                        ProcessingStatus.FAILED,
-                        last_error=str(e),
-                    )
-                except TypeError:
-                    self.doc_repo.update_status(document, ProcessingStatus.FAILED)
+                if not self.doc_repo.update_status(
+                    document_id, ProcessingStatus.FAILED, last_error=str(e),
+                ):
+                    return ProcessingOutcome.DOCUMENT_DELETED
             raise
+
+    def prepare_retry(self, document_id: uuid.UUID, current_user):
+        actor_id, role = current_user.id, current_user.role
+
+        def authorize(document):
+            if document.uploaded_by != actor_id and role != UserRole.ADMIN:
+                raise HTTPException(status_code=403, detail="Khong co quyen retry")
+            if document.processing_status not in {ProcessingStatus.FAILED, ProcessingStatus.PENDING}:
+                raise HTTPException(status_code=409, detail="Document cannot be retried")
+
+        snapshot = self.doc_repo.prepare_retry(document_id, authorize)
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="Không tìm thấy tài liệu.")
+        return snapshot
 
 
 def build_embedding_batches(

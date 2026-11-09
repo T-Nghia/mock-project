@@ -1,0 +1,32 @@
+# Example rules only. Ops must supply private scrape targets, routing and receivers.
+groups:
+  - name: slrms-cleanup
+    rules:
+      - alert: SlrmsCleanupBacklogWarning
+        expr: slrms_cleanup_warning == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Cleanup work is overdue beyond the configured warning threshold
+      - alert: SlrmsCleanupCritical
+        expr: slrms_cleanup_critical == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Cleanup has blocked jobs or work overdue beyond the critical threshold
+      - alert: SlrmsCleanupMetricsMissing
+        expr: absent(slrms_cleanup_jobs{status="pending"})
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Cleanup queue metrics are unavailable
+      - alert: SlrmsCleanupCountCapped
+        expr: max(slrms_cleanup_jobs_capped) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Cleanup counts are lower bounds; inspect the queue privately

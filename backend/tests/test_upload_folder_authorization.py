@@ -111,6 +111,26 @@ class UploadFolderAuthorizationTestCase(unittest.TestCase):
                 self.storage.delete.assert_called_once_with("stored.txt")
                 self.tag_repo.get_or_create.assert_not_called()
 
+    def test_failed_compensation_preserves_original_error_and_safe_log(self):
+        errors = [RuntimeError("original upload failure"),
+                  self.integrity_error(ForeignKeyViolation, "documents_folder_id_fkey")]
+        for original in errors:
+            self.doc_repo.create.side_effect = original
+            self.storage.delete.side_effect = PermissionError("never-log-storage-secret")
+            expected = HTTPException if isinstance(original, IntegrityError) else RuntimeError
+            with self.subTest(error=type(original).__name__), self.assertLogs(
+                "app.services.document_service", level="ERROR",
+            ) as logs:
+                with self.assertRaises(expected) as raised:
+                    self.upload(self.folder_id)
+            if isinstance(original, IntegrityError):
+                self.assertEqual(raised.exception.status_code, 404)
+                self.assertIs(raised.exception.__cause__, original)
+            else:
+                self.assertIs(raised.exception, original)
+            self.assertIn("upload_compensation_failed", " ".join(logs.output))
+            self.assertNotIn("never-log-storage-secret", " ".join(logs.output))
+
 
 class DocumentCreateRollbackTestCase(unittest.TestCase):
     def test_insert_or_commit_failure_rolls_back_and_preserves_error(self):

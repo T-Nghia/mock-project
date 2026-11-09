@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -11,6 +11,7 @@ from app.schemas.chat import (
     ChatQuestionRequest,
     ChatSessionCreate,
     ChatSessionDetailResponse,
+    ChatSessionListResponse,
     ChatSessionResponse,
 )
 from app.services.chat_service import ChatService
@@ -57,6 +58,16 @@ def create_session(
         document_id=data.document_id,
         current_user=current_user,
     )
+
+
+@router.get("/sessions", response_model=ChatSessionListResponse)
+def list_sessions(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user=Depends(chat_user),
+    service: ChatService = Depends(get_chat_service),
+):
+    return service.list_sessions(current_user=current_user, limit=limit, offset=offset)
 
 
 @router.get(

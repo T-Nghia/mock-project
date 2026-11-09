@@ -19,6 +19,7 @@ from app.core.security import create_access_token, hash_password
 from app.main import app
 from app.models.document import Document
 from app.models.folder import Folder
+from app.models.storage_cleanup import CleanupStatus, StorageCleanupJob
 from app.models.tag import DocumentTag, Tag
 from app.models.user import User, UserRole
 from app.utils.text_extract import EMBEDDING_DIM
@@ -62,6 +63,12 @@ class DocumentAPITestCase(unittest.TestCase):
     """Kiểm thử module Document: Upload, View Metadata, Download (mục 2.2)."""
 
     def setUp(self):
+        # These existing unit API cases isolate M1 atomicity/RBAC with local files.
+        # Local deployment is now prohibited; M3 rollout tests exercise the real
+        # middleware/certification gate with real PostgreSQL and S3 separately.
+        gate = patch("app.core.maintenance.require_document_delete")
+        gate.start()
+        self.addCleanup(gate.stop)
         self.previous_db_override = app.dependency_overrides.get(get_db)
         app.dependency_overrides[get_db] = override_get_db
         self.client = TestClient(app)
@@ -81,6 +88,7 @@ class DocumentAPITestCase(unittest.TestCase):
         settings.UPLOAD_DIR = self._tmp_upload_dir
 
         db = TestingSessionLocal()
+        db.query(StorageCleanupJob).delete()
         db.query(DocumentTag).delete()
         db.query(Document).delete()
         db.query(Tag).delete()
@@ -412,8 +420,53 @@ class DocumentAPITestCase(unittest.TestCase):
             f"/documents/{document_id}", headers=self.teacher_headers
         )
         self.assertEqual(get_response.status_code, 404, get_response.text)
-        # File vat ly cung bi xoa khoi dia.
-        self.assertFalse(saved_file.exists())
+        # HTTP 204 confirms durable intent; the M2 worker removes the object later.
+        self.assertTrue(saved_file.exists())
+        with TestingSessionLocal() as db:
+            job = db.query(StorageCleanupJob).one()
+            self.assertEqual(str(job.document_id), document_id)
+            self.assertEqual(job.requested_by, self.teacher.id)
+            self.assertEqual(job.status, CleanupStatus.PENDING)
+            self.assertEqual(job.storage_backend, "local")
+            self.assertEqual(job.storage_bucket_or_root, str(saved_file.parent.resolve()))
+            self.assertEqual(job.object_key_or_location, saved_file.name)
+
+        repeated = self.client.delete(f"/documents/{document_id}", headers=self.teacher_headers)
+        self.assertEqual(repeated.status_code, 404, repeated.text)
+        with TestingSessionLocal() as db:
+            self.assertEqual(db.query(StorageCleanupJob).count(), 1)
+
+    def test_delete_does_not_initialize_or_call_storage(self):
+        upload = self._upload(self.teacher_headers)
+        with patch("app.services.document_service.get_storage") as storage:
+            response = self.client.delete(
+                f"/documents/{upload.json()['id']}", headers=self.teacher_headers,
+            )
+        self.assertEqual(response.status_code, 204, response.text)
+        storage.assert_not_called()
+
+    def test_delete_invalid_uuid(self):
+        response = self.client.delete("/documents/not-a-uuid", headers=self.teacher_headers)
+        self.assertEqual(response.status_code, 422, response.text)
+        with TestingSessionLocal() as db:
+            self.assertEqual(db.query(StorageCleanupJob).count(), 0)
+
+    def test_delete_database_failure_is_500_with_metadata_and_file_preserved(self):
+        upload = self._upload(self.teacher_headers)
+        document_id = upload.json()["id"]
+        saved_file = self._uploaded_file_path()
+        with patch(
+            "app.services.document_deletion_service.StorageCleanupJobRepository.stage",
+            side_effect=RuntimeError("database write failed"),
+        ):
+            response = TestClient(app, raise_server_exceptions=False).delete(
+                f"/documents/{document_id}", headers=self.teacher_headers,
+            )
+        self.assertEqual(response.status_code, 500, response.text)
+        self.assertTrue(saved_file.exists())
+        with TestingSessionLocal() as db:
+            self.assertIsNotNone(db.get(Document, uuid.UUID(document_id)))
+            self.assertEqual(db.query(StorageCleanupJob).count(), 0)
 
     def test_admin_can_delete_any_document(self):
         admin = self._create_user("admin@example.com", UserRole.ADMIN)
@@ -435,6 +488,10 @@ class DocumentAPITestCase(unittest.TestCase):
             f"/documents/{document_id}", headers=self.student_headers
         )
         self.assertEqual(response.status_code, 403, response.text)
+        self.assertTrue(self._uploaded_file_path().exists())
+        with TestingSessionLocal() as db:
+            self.assertIsNotNone(db.get(Document, uuid.UUID(document_id)))
+            self.assertEqual(db.query(StorageCleanupJob).count(), 0)
 
     def test_teacher_cannot_delete_another_teachers_document(self):
         other_teacher = self._create_user("other-teacher@example.com", UserRole.TEACHER)
@@ -447,6 +504,10 @@ class DocumentAPITestCase(unittest.TestCase):
             f"/documents/{document_id}", headers=other_headers
         )
         self.assertEqual(response.status_code, 403, response.text)
+        self.assertTrue(self._uploaded_file_path().exists())
+        with TestingSessionLocal() as db:
+            self.assertIsNotNone(db.get(Document, uuid.UUID(document_id)))
+            self.assertEqual(db.query(StorageCleanupJob).count(), 0)
 
     def test_delete_not_found(self):
         response = self.client.delete(

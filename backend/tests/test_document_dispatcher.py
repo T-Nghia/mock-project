@@ -6,6 +6,7 @@ from fastapi import BackgroundTasks
 
 from app.core.config import settings
 from app.services.document_dispatcher import dispatch_document_processing
+from app.services.document_service import ProcessingOutcome
 from app.tasks.document_processing import process_document
 
 
@@ -44,6 +45,25 @@ class DocumentDispatcherTestCase(unittest.TestCase):
         )
 
         self.assertEqual(len(background_tasks.tasks), 1)
+
+    def test_missing_document_is_not_enqueued_or_added_to_background_tasks(self):
+        service, background = Mock(), BackgroundTasks()
+        service.doc_repo.is_present.return_value = False
+        with patch("app.services.document_dispatcher.process_document.delay") as delay:
+            result = dispatch_document_processing(service=service, document_id=uuid.uuid4(), background_tasks=background)
+        self.assertEqual(result, ProcessingOutcome.DOCUMENT_DELETED)
+        self.assertEqual(background.tasks, [])
+        delay.assert_not_called()
+
+    def test_enqueue_failure_after_delete_is_deleted_outcome_without_failed_write(self):
+        settings.DOCUMENT_PROCESSING_MODE = "celery"
+        service = Mock()
+        service.doc_repo.is_present.return_value = True
+        service.doc_repo.update_status.return_value = False
+        with patch("app.services.document_dispatcher.process_document.delay", side_effect=ConnectionError("broker down")):
+            result = dispatch_document_processing(service=service, document_id=uuid.uuid4(), background_tasks=BackgroundTasks())
+        self.assertEqual(result, ProcessingOutcome.DOCUMENT_DELETED)
+        service.doc_repo.set_task_id.assert_not_called()
 
     @patch("app.tasks.document_processing.DocumentService")
     @patch("app.tasks.document_processing.SessionLocal")

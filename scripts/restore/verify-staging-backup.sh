@@ -1,65 +1,38 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-
-# Restores into a newly-created verification database and MinIO bucket. The live
-# staging database/bucket are never overwritten. Set CLEANUP_VERIFY=1 to remove
-# only the generated verification targets after successful validation.
-
-for command in docker sha256sum; do
-  command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 2; }
+for command in docker sha256sum python3; do
+  command -v "$command" >/dev/null || exit 2
 done
-
-: "${BACKUP_DIR:?BACKUP_DIR must point to a staging backup directory}"
-[[ -f "$BACKUP_DIR/postgres.dump" && -f "$BACKUP_DIR/SHA256SUMS" ]] || {
-  echo "Backup is incomplete: postgres.dump or SHA256SUMS is missing" >&2; exit 2;
-}
-
+: "${BACKUP_DIR:?BACKUP_DIR is required}"
+[[ -f "$BACKUP_DIR/postgres.dump" && -f "$BACKUP_DIR/SHA256SUMS" ]] || exit 2
 (cd "$BACKUP_DIR" && sha256sum -c SHA256SUMS)
-
+BACKUP_DIR="$(cd "$BACKUP_DIR" && pwd)"
 ENV_FILE="${ENV_FILE:-.env.staging}"
 PROJECT_NAME="${PROJECT_NAME:-slrms-staging}"
-STAMP="$(date -u +%Y%m%d%H%M%S)"
-VERIFY_DB="slrms_restore_verify_$STAMP"
-VERIFY_BUCKET="slrms-restore-verify-$STAMP"
-REMOTE_DIR="/tmp/slrms-restore-$STAMP"
-COMPOSE=(docker compose -p "$PROJECT_NAME" --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.staging.yml)
+TOKEN="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+VERIFY_DB="slrms_restore_verify_$TOKEN"
+VERIFY_BUCKET="slrms-restore-verify-$TOKEN"
+COMPOSE=(docker compose --profile cleanup -p "$PROJECT_NAME" --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.staging.yml)
 DB_USER="$("${COMPOSE[@]}" exec -T db printenv POSTGRES_USER | tr -d '\r')"
-
-echo "Creating isolated verification database: $VERIFY_DB"
 "${COMPOSE[@]}" exec -T db createdb -U "$DB_USER" "$VERIFY_DB"
-"${COMPOSE[@]}" exec -T db pg_restore -U "$DB_USER" -d "$VERIFY_DB" \
-  --no-owner --no-acl <"$BACKUP_DIR/postgres.dump"
-
-MINIO_CONTAINER="$("${COMPOSE[@]}" ps -q minio)"
-docker cp "$BACKUP_DIR/storage/." "$MINIO_CONTAINER:$REMOTE_DIR"
-"${COMPOSE[@]}" exec -T minio sh -c '
-  mc alias set slrms-verify http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null &&
-  mc mb --ignore-existing "slrms-verify/$1" &&
-  mc mirror --overwrite "$2" "slrms-verify/$1"
-' sh "$VERIFY_BUCKET" "$REMOTE_DIR"
-
-DOCUMENTS="$("${COMPOSE[@]}" exec -T db psql -U "$DB_USER" -d "$VERIFY_DB" -Atc 'SELECT count(*) FROM documents')"
-CHUNKS="$("${COMPOSE[@]}" exec -T db psql -U "$DB_USER" -d "$VERIFY_DB" -Atc 'SELECT count(*) FROM document_chunks')"
-MISSING=0
-while IFS= read -r key; do
-  [[ -z "$key" ]] && continue
-  if ! "${COMPOSE[@]}" exec -T minio mc stat "slrms-verify/$VERIFY_BUCKET/$key" >/dev/null 2>&1; then
-    echo "Missing restored object: $key" >&2
-    MISSING=$((MISSING + 1))
-  fi
-done < <("${COMPOSE[@]}" exec -T db psql -U "$DB_USER" -d "$VERIFY_DB" -Atc 'SELECT file_path FROM documents ORDER BY file_path')
-
-[[ "$MISSING" == "0" ]] || { echo "Restore verification failed: $MISSING objects missing" >&2; exit 1; }
-echo "PASS: restored database and object references are consistent. documents=$DOCUMENTS chunks=$CHUNKS"
-echo "Verification database: $VERIFY_DB"
-echo "Verification bucket: $VERIFY_BUCKET"
-
-if [[ "${CLEANUP_VERIFY:-0}" == "1" ]]; then
-  echo "Removing generated verification targets..."
-  "${COMPOSE[@]}" exec -T db dropdb -U "$DB_USER" "$VERIFY_DB"
-  "${COMPOSE[@]}" exec -T minio mc rb --force "slrms-verify/$VERIFY_BUCKET"
-  "${COMPOSE[@]}" exec -T minio rm -rf -- "$REMOTE_DIR"
-  "${COMPOSE[@]}" exec -T minio mc alias rm slrms-verify >/dev/null 2>&1 || true
-else
-  echo "Targets were retained for inspection. Set CLEANUP_VERIFY=1 on the next drill to clean automatically."
-fi
+"${COMPOSE[@]}" exec -T db pg_restore -U "$DB_USER" -d "$VERIFY_DB" --no-owner --no-acl < "$BACKUP_DIR/postgres.dump"
+"${COMPOSE[@]}" run --rm --no-deps -T --user "$(id -u):$(id -g)" \
+  -e DOCUMENT_DELETE_ENABLED=false -e DOCUMENT_MUTATIONS_ENABLED=false -e CLEANUP_ENABLED=false \
+  -v "$BACKUP_DIR:/backup:ro" backend python -m app.storage_backup restore --directory /backup/storage --bucket "$VERIFY_BUCKET"
+"${COMPOSE[@]}" run --rm --no-deps -T \
+  -e DOCUMENT_DELETE_ENABLED=false -e DOCUMENT_MUTATIONS_ENABLED=false -e CLEANUP_ENABLED=false \
+  -e STORAGE_BUCKET="$VERIFY_BUCKET" -e VERIFY_DATABASE="$VERIFY_DB" backend python -c '
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import sessionmaker
+from app.core.config import settings
+from app.storage_backup import verify_live_references
+engine = create_engine(make_url(settings.DATABASE_URL).set(database=os.environ["VERIFY_DATABASE"]))
+try:
+    print(verify_live_references(sessionmaker(bind=engine)))
+finally:
+    engine.dispose()
+'
+echo "Verification targets retained: database=$VERIFY_DB bucket=$VERIFY_BUCKET"
+echo 'Cleanup stays disabled. Audit queue/leases and target mismatch before any activation. Never remap automatically.'

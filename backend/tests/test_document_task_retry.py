@@ -1,12 +1,15 @@
 import unittest
+import uuid
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import httpx
 from celery.exceptions import Retry
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.models.document import ProcessingStatus
 from app.services.gemini_embedding_provider import GeminiEmbeddingProviderError
+from app.services.document_service import ProcessingOutcome
 from app.tasks.document_processing import (
     handle_processing_failure,
     is_retryable_processing_error,
@@ -38,6 +41,27 @@ class DocumentTaskRetryTestCase(unittest.TestCase):
     @patch("app.tasks.document_processing.random.randint", return_value=0)
     def test_retry_delay_uses_capped_exponential_backoff(self, _randint):
         self.assertEqual([retry_countdown(i) for i in range(6)], [30, 60, 120, 240, 300, 300])
+        self.assertEqual(retry_countdown(10**100), 300)
+
+    def test_database_error_is_classified_separately_from_deleted_document(self):
+        error = OperationalError("UPDATE", {}, RuntimeError("connection lost"))
+        self.assertTrue(is_retryable_processing_error(error))
+        self.assertFalse(is_retryable_processing_error(IntegrityError("INSERT", {}, RuntimeError("constraint"))))
+        task = Mock(request=SimpleNamespace(retries=0), max_retries=5)
+        task.retry.side_effect = Retry()
+        repository = Mock()
+        repository.update_status.side_effect = error
+        with self.assertRaises(Retry):
+            handle_processing_failure(task, repository, uuid.uuid4(), error)
+        self.assertIs(task.retry.call_args.kwargs["exc"], error)
+
+    def test_deleted_document_failure_never_retries_or_resurrects(self):
+        task = Mock(request=SimpleNamespace(retries=0), max_retries=5)
+        repository = Mock()
+        repository.update_status.return_value = False
+        result = handle_processing_failure(task, repository, uuid.uuid4(), TimeoutError("late failure"))
+        self.assertEqual(result, ProcessingOutcome.DOCUMENT_DELETED)
+        task.retry.assert_not_called()
 
     @patch("app.tasks.document_processing.retry_countdown", return_value=60)
     def test_transient_failure_sets_retrying_before_scheduling_retry(self, _countdown):

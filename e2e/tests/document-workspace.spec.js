@@ -21,9 +21,9 @@ function pdfFixture() {
 }
 
 async function mockWorkspace(page, options = {}) {
-  const state = { requests: [], creates: 0, asks: 0, sessions: options.existing ? ["s1", "s2"] : [], histories: {}, failAsk: !!options.failAsk, failList: !!options.failList, failView: !!options.failView, failMetadata: !!options.failMetadata, failCreate: !!options.failCreate, status: options.status || "done", unexpected: [] };
+  const state = { requests: [], creates: 0, asks: 0, sessions: options.existing ? ["s1", "s2"] : [], histories: {}, deleted: !!options.deleted, failAsk: !!options.failAsk, failList: !!options.failList, failView: !!options.failView, failMetadata: !!options.failMetadata, failCreate: !!options.failCreate, status: options.status || "done", unexpected: [] };
   const user = { id: "user-1", full_name: "Nguyễn Minh Anh", email: "minhanh@example.com", role: options.role || "teacher", is_active: true, created_at: "2026-10-20T08:00:00Z" };
-  const session = (id) => ({ id, document_id: "doc-1", title: id === "s1" ? "Tổng quan về RAG" : id === "s2" ? "Đánh giá chất lượng" : "Cuộc trò chuyện mới", created_at: user.created_at });
+  const session = (id) => ({ id, document_id: state.deleted ? null : "doc-1", title: id === "s1" ? "Tổng quan về RAG" : id === "s2" ? "Đánh giá chất lượng" : "Cuộc trò chuyện mới", created_at: user.created_at });
   state.histories.s1 = [{ id: "old-1", role: "assistant", content: "Nội dung phiên tổng quan.", sources: [], created_at: user.created_at }];
   state.histories.s2 = [{ id: "old-2", role: "assistant", content: "Nội dung phiên đánh giá.", sources: [], created_at: user.created_at }];
   let bookmarked = false;
@@ -81,6 +81,7 @@ async function mockWorkspace(page, options = {}) {
       const id = match[1];
       if (match[2]) {
         state.asks++;
+        if (state.deleted) return respond({ detail: "Tài liệu đã xóa. Cuộc trò chuyện chỉ đọc." }, 409);
         if (options.delay) await new Promise((resolve) => setTimeout(resolve, options.delay));
         if (state.failAsk) return respond({ detail: "Dịch vụ AI tạm thời không khả dụng." }, 503);
         const sources = [{ chunk_id: "chunk-1", chunk_index: 1, quote, score: 0.87, heading_path: ["RAG", "Quy trình truy xuất"] }];
@@ -252,6 +253,7 @@ test("bookmark, rating, comments and owner delete keep their API contracts", asy
   await expect(page.getByText("Tài liệu hữu ích cho nghiên cứu.", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Xóa", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Xóa tài liệu?" })).toBeVisible();
+  await expect(page.getByRole("dialog")).toContainText("Lịch sử trò chuyện AI và trích dẫn được giữ");
   await page.getByRole("button", { name: "Hủy", exact: true }).click();
   expect(state.requests.some((request) => request.path === "/documents/doc-1" && request.method === "DELETE")).toBe(false);
   expect(state.requests).toEqual(expect.arrayContaining([
@@ -363,4 +365,18 @@ test("explicit new conversation preserves existing histories and deletes active 
   await expect(page.getByText("Nội dung phiên tổng quan.", { exact: true })).toBeVisible();
   expect(state.sessions).toEqual(["s1", "s2"]);
   expect(state.creates).toBe(1);
+});
+
+test("document deleted after loading makes chat read-only after 409", async ({ page }) => {
+  const state = await openWorkspace(page, { existing: true });
+  state.deleted = true;
+  await page.getByLabel("Câu hỏi cho trợ lý AI").fill(question);
+  await page.getByRole("button", { name: "Gửi câu hỏi", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Tài liệu đã bị xóa. Cuộc trò chuyện chỉ đọc");
+  await expect(page.getByLabel("Câu hỏi cho trợ lý AI")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Cuộc trò chuyện mới", exact: true })).toBeDisabled();
+  await expect(page.getByRole("link", { name: "Mở lịch sử trò chuyện", exact: true })).toHaveAttribute("href", "/chat");
+  await expect(page.getByText("Nội dung phiên tổng quan.", { exact: true })).toBeVisible();
+  expect(state.asks).toBe(1);
+  expect(state.creates).toBe(0);
 });

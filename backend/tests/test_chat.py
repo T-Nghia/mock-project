@@ -41,7 +41,11 @@ class FakeRetriever:
 
 
 class FakeProvider:
+    def __init__(self):
+        self.calls = []
+
     def answer(self, *, question, context, history):
+        self.calls.append((question, context, history))
         return GeneratedAnswer(
             content="FastAPI dung de xay dung API.",
             grounded=True,
@@ -77,9 +81,10 @@ class ChatAPITestCase(unittest.TestCase):
     def setUp(self):
         self.previous_overrides = dict(app.dependency_overrides)
         self.retriever = FakeRetriever()
+        self.provider = FakeProvider()
         app.dependency_overrides[get_db] = override_get_db
         app.dependency_overrides[get_retriever] = lambda: self.retriever
-        app.dependency_overrides[get_answer_provider] = lambda: FakeProvider()
+        app.dependency_overrides[get_answer_provider] = lambda: self.provider
         self.client = TestClient(app)
 
         db = TestingSessionLocal()
@@ -163,6 +168,131 @@ class ChatAPITestCase(unittest.TestCase):
 
     def create_session_for(self, user: User) -> dict:
         return self.create_session(self.headers(user))
+
+    def create_legacy_orphan(self, user: User) -> tuple[str, list[dict]]:
+        """An orphan which already existed before the new deletion service."""
+        sources = [{
+            "chunk_id": str(uuid.uuid4()), "chunk_index": 3,
+            "quote": "Preserved citation snapshot", "score": 0.9,
+            "heading_path": ["Old section"],
+        }]
+        with TestingSessionLocal() as db:
+            session = ChatSession(user_id=user.id, document_id=None, title="Old chat")
+            db.add(session)
+            db.flush()
+            session_id = str(session.id)
+            db.add_all([
+                ChatMessage(session_id=session.id, role="user", content="Old question"),
+                ChatMessage(
+                    session_id=session.id, role="assistant", content="Old answer",
+                    source_chunks=sources,
+                ),
+            ])
+            db.commit()
+        return session_id, sources
+
+    def test_history_list_is_paginated_owned_and_includes_legacy_orphans(self):
+        live = self.create_session()
+        orphan_id, _ = self.create_legacy_orphan(self.student)
+        self.create_legacy_orphan(self.other)
+
+        unauthenticated = self.client.get("/chat/sessions")
+        self.assertEqual(unauthenticated.status_code, 401)
+        first = self.client.get(
+            "/chat/sessions?limit=1&offset=0", headers=self.student_headers,
+        )
+        second = self.client.get(
+            "/chat/sessions?limit=1&offset=1", headers=self.student_headers,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(first.json()["total"], 2)
+        self.assertEqual(first.json()["limit"], 1)
+        self.assertEqual(first.json()["offset"], 0)
+        items = first.json()["items"] + second.json()["items"]
+        self.assertEqual({item["id"] for item in items}, {live["id"], orphan_id})
+        orphan = next(item for item in items if item["id"] == orphan_id)
+        self.assertIsNone(orphan["document_id"])
+        empty = self.client.get(
+            "/chat/sessions?offset=2", headers=self.student_headers,
+        )
+        self.assertEqual(empty.json()["items"], [])
+        self.assertEqual(empty.json()["total"], 2)
+
+    def test_history_pagination_rejects_invalid_bounds(self):
+        for query in ("limit=0", "limit=101", "offset=-1", "limit=bad"):
+            with self.subTest(query=query):
+                response = self.client.get(
+                    f"/chat/sessions?{query}", headers=self.student_headers,
+                )
+                self.assertEqual(response.status_code, 422)
+
+    def test_legacy_orphan_transcript_keeps_messages_and_citation_snapshot(self):
+        orphan_id, sources = self.create_legacy_orphan(self.student)
+        response = self.client.get(
+            f"/chat/sessions/{orphan_id}", headers=self.student_headers,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        detail = response.json()
+        self.assertIsNone(detail["document_id"])
+        self.assertEqual(len(detail["messages"]), 2)
+        assistant = next(message for message in detail["messages"] if message["role"] == "assistant")
+        self.assertEqual(assistant["sources"], sources)
+        hidden = self.client.get(
+            f"/chat/sessions/{orphan_id}", headers=self.other_headers,
+        )
+        self.assertEqual(hidden.status_code, 404)
+
+    def test_orphan_message_returns_409_without_provider_retriever_or_write(self):
+        orphan_id, _ = self.create_legacy_orphan(self.student)
+        response = self.client.post(
+            f"/chat/sessions/{orphan_id}/messages", headers=self.student_headers,
+            json={"content": "Cannot ask this"},
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(self.retriever.calls, [])
+        self.assertEqual(self.provider.calls, [])
+        with TestingSessionLocal() as db:
+            self.assertEqual(db.query(ChatMessage).count(), 2)
+
+    def test_orphan_delete_is_private_cascades_messages_and_repeated_delete_is_404(self):
+        orphan_id, _ = self.create_legacy_orphan(self.student)
+        hidden = self.client.delete(
+            f"/chat/sessions/{orphan_id}", headers=self.other_headers,
+        )
+        self.assertEqual(hidden.status_code, 404)
+        deleted = self.client.delete(
+            f"/chat/sessions/{orphan_id}", headers=self.student_headers,
+        )
+        self.assertEqual(deleted.status_code, 204, deleted.text)
+        self.assertEqual(deleted.content, b"")
+        repeated = self.client.delete(
+            f"/chat/sessions/{orphan_id}", headers=self.student_headers,
+        )
+        self.assertEqual(repeated.status_code, 404)
+        with TestingSessionLocal() as db:
+            self.assertIsNone(db.get(ChatSession, uuid.UUID(orphan_id)))
+            self.assertEqual(db.query(ChatMessage).count(), 0)
+
+    def test_document_fk_set_null_keeps_history_readable(self):
+        session = self.create_session()
+        answer = self.client.post(
+            f"/chat/sessions/{session['id']}/messages", headers=self.student_headers,
+            json={"content": "Original question"},
+        )
+        self.assertEqual(answer.status_code, 201, answer.text)
+        old_messages = self.client.get(
+            f"/chat/sessions/{session['id']}", headers=self.student_headers,
+        ).json()["messages"]
+        with TestingSessionLocal() as db:
+            db.delete(db.get(Document, self.document.id))
+            db.commit()
+        response = self.client.get(
+            f"/chat/sessions/{session['id']}", headers=self.student_headers,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(response.json()["document_id"])
+        self.assertEqual(response.json()["messages"], old_messages)
 
     def test_create_session_requires_token_and_allows_student_and_teacher(self):
         unauthenticated = self.client.post(

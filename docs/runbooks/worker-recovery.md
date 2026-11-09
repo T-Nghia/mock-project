@@ -1,5 +1,11 @@
 # Worker recovery drill
 
+This is the **Celery processing** drill. Fix 02 cleanup is a separate PostgreSQL
+polling service and must never be replaced by a Celery task or Redis recovery
+procedure. See [storage cleanup operations](storage-cleanup-operations.md) for
+cleanup health, inspect/requeue, fencing and backup. M3 fault drills run only on
+disposable infrastructure; do not use a shared staging worker for that acceptance.
+
 Run this drill on staging after a deployment that changes Celery, Redis, document
 processing, or storage. It intentionally kills the staging worker; do not run it
 against production.

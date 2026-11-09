@@ -158,13 +158,20 @@ export interface ChatMessage {
 
 export interface ChatSession {
   id: string;
-  document_id: string;
+  document_id: string | null;
   title: string;
   created_at: string;
 }
 
 export interface ChatSessionDetail extends ChatSession {
   messages: ChatMessage[];
+}
+
+export interface PaginatedChatSessions {
+  items: ChatSession[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface ChatAnswer {
