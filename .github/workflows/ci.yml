@@ -381,6 +381,12 @@ jobs:
               assert not config['services'][name].get('ports'), f'{name} exposes host ports'
           for port in config['services']['frontend'].get('ports', []):
               assert port.get('host_ip') == '127.0.0.1', 'frontend bypasses ingress publicly'
+          backend_ports = config['services']['backend'].get('ports', [])
+          assert len(backend_ports) == 1, 'backend must publish exactly one port'
+          assert backend_ports[0].get('host_ip') == '127.0.0.1', 'backend bypasses ingress publicly'
+          assert str(backend_ports[0].get('published')) == '8000', 'unexpected backend published port'
+          assert backend_ports[0].get('target') == 8000, 'unexpected backend target port'
+          assert backend_ports[0].get('protocol') == 'tcp', 'unexpected backend port protocol'
           for name in ('migrate', 'backend', 'worker', 'cleanup'):
               for volume in config['services'][name].get('volumes', []):
                   if volume.get('type') == 'bind':
