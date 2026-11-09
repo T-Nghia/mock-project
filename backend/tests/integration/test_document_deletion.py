@@ -61,6 +61,11 @@ class DocumentDeletionPostgreSQLTestCase(unittest.TestCase):
         )
         storage_settings.start()
         self.addCleanup(storage_settings.stop)
+        from tests.cleanup_fixture import certificate_fixture
+        gate = patch.multiple(settings, DOCUMENT_DELETE_ENABLED=True,
+                              CLEANUP_CERTIFICATE_FILE=certificate_fixture(self))
+        gate.start()
+        self.addCleanup(gate.stop)
         self.schema = f"document_deletion_test_{uuid.uuid4().hex}"
         with self.admin_engine.begin() as connection:
             connection.execute(text(f'CREATE SCHEMA "{self.schema}"'))
@@ -168,7 +173,7 @@ class DocumentDeletionPostgreSQLTestCase(unittest.TestCase):
         self.assertIn("attempts >= 0", checks)
         with self.admin_engine.connect() as connection:
             self.assertEqual(connection.scalar(text("SELECT version_num FROM alembic_version")),
-                             "f6a7b8c9d0e1")
+                             "a7b8c9d0e1f2")
 
     def test_migration_downgrade_refuses_to_discard_unfinished_cleanup_intent(self):
         path = (Path(__file__).resolve().parents[2] / "alembic/versions"

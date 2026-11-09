@@ -63,6 +63,12 @@ class DocumentAPITestCase(unittest.TestCase):
     """Kiểm thử module Document: Upload, View Metadata, Download (mục 2.2)."""
 
     def setUp(self):
+        # These existing unit API cases isolate M1 atomicity/RBAC with local files.
+        # Local deployment is now prohibited; M3 rollout tests exercise the real
+        # middleware/certification gate with real PostgreSQL and S3 separately.
+        gate = patch("app.core.maintenance.require_document_delete")
+        gate.start()
+        self.addCleanup(gate.stop)
         self.previous_db_override = app.dependency_overrides.get(get_db)
         app.dependency_overrides[get_db] = override_get_db
         self.client = TestClient(app)

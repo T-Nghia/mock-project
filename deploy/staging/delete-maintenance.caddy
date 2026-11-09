@@ -1,0 +1,11 @@
+# Closed by default. Keep this edge gate closed while ANY legacy replica exists.
+# Ops may replace with an empty file and reload Caddy only after certification,
+# private-backend verification and retiring all pre-M3 binaries (see runbook).
+@document_delete_maintenance {
+    method DELETE
+    path_regexp document_delete ^/documents/[^/]+/?$
+}
+handle @document_delete_maintenance {
+    header Retry-After "300"
+    respond "Document deletion is under maintenance" 503
+}

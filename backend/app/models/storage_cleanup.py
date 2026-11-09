@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, Index, Integer, String, Text, text
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -22,6 +22,7 @@ class StorageCleanupJob(Base):
     __tablename__ = "storage_cleanup_jobs"
     __table_args__ = (
         CheckConstraint("attempts >= 0", name="ck_storage_cleanup_attempts"),
+        Index("ix_storage_cleanup_status_created", "status", "created_at"),
         Index(
             "ix_storage_cleanup_due", "next_attempt_at", "created_at",
             postgresql_where=text("status IN ('pending', 'retry')"),
@@ -68,3 +69,16 @@ class StorageCleanupJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error_code: Mapped[str | None] = mapped_column(String(100))
     last_error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class StorageCleanupRequeue(Base):
+    """Atomic operator audit, retained independently of application users."""
+
+    __tablename__ = "storage_cleanup_requeues"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("storage_cleanup_jobs.id", ondelete="RESTRICT"))
+    previous_status: Mapped[str] = mapped_column(String(20))
+    operator: Mapped[str] = mapped_column(String(100))
+    ticket: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"))

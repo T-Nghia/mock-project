@@ -1,6 +1,7 @@
 """Run with the dedicated Redis container stopped and no Celery process alive."""
 
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -46,5 +47,11 @@ class CleanupIndependenceTestCase(S3ReliabilityDatabaseCase):
                 self.assertEqual(worker.returncode, 0, "Cleanup did not shut down gracefully")
                 logs.seek(0)
                 contents = logs.read()
-                self.assertIn("event=cleanup_outcome", contents)
+                events = [json.loads(line) for line in contents.splitlines() if line.startswith("{")]
+                outcomes = [event for event in events if event.get("event") == "cleanup_outcome"
+                            and event.get("job_id") == str(job_id)]
+                self.assertEqual(len(outcomes), 1)
+                self.assertEqual(outcomes[0]["status"], "done")
+                self.assertTrue(outcomes[0]["lease_accepted"])
+                self.assertIn("cleanup_worker_stopped", {event.get("event") for event in events})
                 self.assertFalse(settings.STORAGE_SECRET_ACCESS_KEY in contents, "Credential leaked in worker logs")

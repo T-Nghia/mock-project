@@ -21,5 +21,11 @@
 {$API_DOMAIN} {
 	import security_headers
 	encode zstd gzip
-	reverse_proxy backend:8000
+    route {
+        # Metrics are private; operators scrape through the backend network/SSH.
+        @private_metrics path /metrics
+        respond @private_metrics 404
+        import /etc/caddy/delete-maintenance.caddy
+        reverse_proxy backend:8000
+    }
 }

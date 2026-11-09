@@ -20,6 +20,7 @@ services:
       - "443:443/udp"
     volumes:
       - ./deploy/staging/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${DOCUMENT_DELETE_EDGE_GATE_FILE:-./deploy/staging/delete-maintenance.caddy}:/etc/caddy/delete-maintenance.caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

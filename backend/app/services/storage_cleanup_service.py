@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import errno
 import logging
+import json
 from pathlib import Path
 import random
 from typing import Callable
@@ -156,8 +157,8 @@ class StorageCleanupService:
             except Exception:
                 db.rollback()
                 raise
-        logger.info("event=cleanup_outcome job_id=%s status=%s lease_accepted=%s",
-                    claim.id, status.value, updated)
+        logger.info(json.dumps({"event": "cleanup_outcome", "job_id": str(claim.id),
+                                "status": status.value, "lease_accepted": updated}))
         return updated
 
     def run_once(self) -> bool:

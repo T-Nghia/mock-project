@@ -98,9 +98,13 @@ class ReliabilityDatabaseCase(unittest.TestCase):
             return db.scalar(select(func.count()).select_from(model))
 
     def child_environment(self):
+        from tests.cleanup_fixture import certificate_fixture
         url = make_url(self.database_url).update_query_dict({"options": f"-csearch_path={self.schema},public"})
         return {
-            **os.environ, "DATABASE_URL": url.render_as_string(hide_password=False),
+            **os.environ,
+            "CLEANUP_ENABLED": "true", "DOCUMENT_DELETE_ENABLED": "true",
+            "CLEANUP_CERTIFICATE_FILE": certificate_fixture(self),
+            "DATABASE_URL": url.render_as_string(hide_password=False),
             "ENV": "test", "RELIABILITY_FAULT_PROCESS": "1", "PYTHONDONTWRITEBYTECODE": "1",
             "STORAGE_BACKEND": settings.STORAGE_BACKEND, "STORAGE_BUCKET": settings.STORAGE_BUCKET,
             "STORAGE_ENDPOINT_URL": settings.STORAGE_ENDPOINT_URL, "STORAGE_REGION": settings.STORAGE_REGION,

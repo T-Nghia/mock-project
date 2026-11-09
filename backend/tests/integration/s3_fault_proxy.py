@@ -12,6 +12,9 @@ class S3FaultProxy:
     def __init__(self, endpoint):
         self.upstream = urlsplit(endpoint)
         self.faults = deque()
+        self.deny_deletes = False
+        self.forbidden_buckets = set()
+        self.forbidden_requests = []
         self.request_seen = threading.Event()
         self.release = threading.Event()
         self.deleted = threading.Event()
@@ -25,12 +28,19 @@ class S3FaultProxy:
 
             def forward(self):
                 mode = outer.faults.popleft() if self.command == "DELETE" and outer.faults else None
-                if mode in {"503", "timeout"}:
+                if self.command == "DELETE" and outer.deny_deletes:
+                    mode = "403"
+                bucket = urlsplit(self.path).path.split("/")[1]
+                if bucket in outer.forbidden_buckets:
+                    outer.forbidden_requests.append((self.command, self.path))
+                    mode = "403"
+                if mode in {"503", "timeout", "403"}:
                     outer.request_seen.set()
                     if mode == "timeout":
                         outer.release.wait(5)
-                    payload = b"<Error><Code>ServiceUnavailable</Code><Message>Injected test failure</Message></Error>"
-                    self.send_response(503)
+                    code = "AccessDenied" if mode == "403" else "ServiceUnavailable"
+                    payload = f"<Error><Code>{code}</Code><Message>Injected test failure</Message></Error>".encode()
+                    self.send_response(403 if mode == "403" else 503)
                     self.send_header("Content-Type", "application/xml")
                     self.send_header("Content-Length", str(len(payload)))
                     self.end_headers()

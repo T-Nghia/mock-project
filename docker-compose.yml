@@ -81,6 +81,9 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     env_file: .env
     environment:
+      DOCUMENT_DELETE_ENABLED: ${DOCUMENT_DELETE_ENABLED:-false}
+      DOCUMENT_MUTATIONS_ENABLED: ${DOCUMENT_MUTATIONS_ENABLED:-true}
+      CLEANUP_CERTIFICATE_FILE: /run/slrms/cleanup-target.json
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
@@ -109,6 +112,7 @@ services:
     volumes:
       - ./backend:/app
       - uploads_data:/app/uploads
+      - ${CLEANUP_CERTIFICATE_HOST_FILE:-./deploy/cleanup/unverified.json}:/run/slrms/cleanup-target.json:ro
     depends_on:
       db:
         condition: service_healthy
@@ -152,6 +156,48 @@ services:
       migrate:
         condition: service_completed_successfully
       minio-init:
+        condition: service_completed_successfully
+
+  cleanup:
+    profiles: ["cleanup"]
+    build: ./backend
+    command: python -m app.cleanup_worker
+    restart: unless-stopped
+    stop_grace_period: ${CLEANUP_SHUTDOWN_BUDGET_SECONDS:-180}s
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      CLEANUP_ENABLED: ${CLEANUP_ENABLED:-false}
+      CLEANUP_CERTIFICATE_FILE: /run/slrms/cleanup-target.json
+      CLEANUP_CERTIFICATE_MAX_AGE_SECONDS: ${CLEANUP_CERTIFICATE_MAX_AGE_SECONDS:-86400}
+      CLEANUP_HEARTBEAT_FILE: /tmp/slrms-cleanup-heartbeat
+      CLEANUP_POLL_SECONDS: ${CLEANUP_POLL_SECONDS:-5}
+      CLEANUP_LEASE_SECONDS: ${CLEANUP_LEASE_SECONDS:-120}
+      CLEANUP_CONNECT_TIMEOUT_SECONDS: ${CLEANUP_CONNECT_TIMEOUT_SECONDS:-5}
+      CLEANUP_READ_TIMEOUT_SECONDS: ${CLEANUP_READ_TIMEOUT_SECONDS:-15}
+      CLEANUP_RETRY_BASE_SECONDS: ${CLEANUP_RETRY_BASE_SECONDS:-30}
+      CLEANUP_RETRY_MAX_SECONDS: ${CLEANUP_RETRY_MAX_SECONDS:-3600}
+      CLEANUP_SHUTDOWN_BUDGET_SECONDS: ${CLEANUP_SHUTDOWN_BUDGET_SECONDS:-180}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_ENDPOINT_URL: ${STORAGE_ENDPOINT_URL:-http://minio:9000}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_ACCESS_KEY_ID: ${CLEANUP_STORAGE_ACCESS_KEY_ID:-${STORAGE_ACCESS_KEY_ID:-}}
+      STORAGE_SECRET_ACCESS_KEY: ${CLEANUP_STORAGE_SECRET_ACCESS_KEY:-${STORAGE_SECRET_ACCESS_KEY:-}}
+    volumes:
+      - ${CLEANUP_CERTIFICATE_HOST_FILE:-./deploy/cleanup/unverified.json}:/run/slrms/cleanup-target.json:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.cleanup_health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
         condition: service_completed_successfully
 
   frontend:
