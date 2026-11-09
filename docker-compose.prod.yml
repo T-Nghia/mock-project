@@ -164,10 +164,11 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required}
+        BUILD_REVISION: ${BUILD_REVISION:-unknown}
     environment:
       NODE_ENV: production
-    ports:
-      - "3000:3000"
+    ports: !override
+      - "127.0.0.1:3000:3000"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
       interval: 15s

@@ -22,16 +22,15 @@ interface DialogContextValue {
 const DialogContext = React.createContext<DialogContextValue | undefined>(undefined);
 let openDialogs = 0;
 let previousBodyOverflow = "";
+const subscribeHydration = () => () => {};
 
 export function Dialog({ id, open, onOpenChange, children, variant = "center" }: DialogProps) {
-  const [mounted, setMounted] = React.useState(false);
+  const mounted = React.useSyncExternalStore(subscribeHydration, () => true, () => false);
   const [hasDescription, setHasDescription] = React.useState(false);
   const dialogRef = React.useRef<HTMLDialogElement>(null);
   const generatedId = React.useId();
   const titleId = generatedId + "-title";
   const descriptionId = generatedId + "-description";
-
-  React.useEffect(() => setMounted(true), []);
 
   React.useEffect(() => {
     const dialog = dialogRef.current;

@@ -2,3 +2,9 @@ node_modules
 .next
 .env*
 npm-debug.log*
+*.tsbuildinfo
+.cache
+coverage
+test-results
+playwright-report
+.git

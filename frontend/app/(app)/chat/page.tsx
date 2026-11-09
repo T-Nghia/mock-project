@@ -20,10 +20,16 @@ export default function ChatHistoryPage() {
   const [error, setError] = useState(false);
   const [selected, setSelected] = useState<ChatSession | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const requestKey = `${offset}:${attempt}`;
+  const [previousRequest, setPreviousRequest] = useState(requestKey);
+  if (previousRequest !== requestKey) {
+    setPreviousRequest(requestKey);
     setLoading(true);
     setError(false);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
     chatApi.listSessions(PAGE_SIZE, offset)
       .then((result) => { if (!cancelled) setData(result); })
       .catch(() => { if (!cancelled) setError(true); })

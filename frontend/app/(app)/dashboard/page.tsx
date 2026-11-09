@@ -32,13 +32,19 @@ export default function DashboardPage() {
   const canViewAnalytics = role === "teacher" || role === "admin";
   const isAdmin = role === "admin";
 
+  const requestKey = `${user?.id}:${role}:${attempt}`;
+  const [previousRequest, setPreviousRequest] = useState(requestKey);
+  if (previousRequest !== requestKey) {
+    setPreviousRequest(requestKey);
+    setLoading(true);
+    setError(null);
+    setData(null);
+  }
+
   useEffect(() => {
     // The existing backend deliberately denies students access to dashboard metrics.
     if (!canViewAnalytics) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setData(null);
     dashboardApi.get()
       .then((response) => { if (!cancelled) setData(response); })
       .catch((err: unknown) => {

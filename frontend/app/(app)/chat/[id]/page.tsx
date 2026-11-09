@@ -25,6 +25,14 @@ function ChatTranscript({ sessionId }: { sessionId: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const mounted = useRef(false);
 
+  const requestKey = `${sessionId}:${attempt}`;
+  const [previousRequest, setPreviousRequest] = useState(requestKey);
+  if (previousRequest !== requestKey) {
+    setPreviousRequest(requestKey);
+    setLoading(true);
+    setError(null);
+  }
+
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
@@ -32,8 +40,6 @@ function ChatTranscript({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     chatApi.getSession(sessionId)
       .then((result) => { if (!cancelled) setSession(result); })
       .catch((err) => { if (!cancelled) setError(err instanceof ApiError ? err.message : "Vui lòng thử lại."); })

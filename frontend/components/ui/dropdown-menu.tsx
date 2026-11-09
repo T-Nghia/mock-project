@@ -6,8 +6,9 @@ import { cn } from "@/lib/utils";
 interface DropdownContextValue {
   open: boolean;
   setOpen: (value: boolean) => void;
-  triggerRef: React.RefObject<HTMLButtonElement>;
-  initialFocus: React.MutableRefObject<"first" | "last">;
+  triggerRef: React.RefObject<HTMLButtonElement | null>;
+  initialFocus: "first" | "last";
+  setInitialFocus: (value: "first" | "last") => void;
   triggerId: string;
   contentId: string;
   popupRole: "menu" | "dialog";
@@ -33,7 +34,7 @@ export function DropdownMenu({ children, open: controlledOpen, onOpenChange }: {
   }, [controlledOpen, onOpenChange]);
   const ref = React.useRef<HTMLDivElement>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
-  const initialFocus = React.useRef<"first" | "last">("first");
+  const [initialFocus, setInitialFocus] = React.useState<"first" | "last">("first");
   const id = React.useId();
   const popupRole = hasMenuItems(children) ? "menu" : "dialog";
 
@@ -47,7 +48,7 @@ export function DropdownMenu({ children, open: controlledOpen, onOpenChange }: {
   }, [open, setOpen]);
 
   return (
-    <DropdownContext.Provider value={{ open, setOpen, triggerRef, initialFocus, triggerId: id + "-trigger", contentId: id + "-content", popupRole }}>
+    <DropdownContext.Provider value={{ open, setOpen, triggerRef, initialFocus, setInitialFocus, triggerId: id + "-trigger", contentId: id + "-content", popupRole }}>
       <div
         className="relative inline-block"
         ref={ref}
@@ -64,29 +65,30 @@ export function DropdownMenu({ children, open: controlledOpen, onOpenChange }: {
 export function DropdownMenuTrigger({ children, className, onClick, onKeyDown, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   const ctx = React.useContext(DropdownContext);
   if (!ctx) throw new Error("DropdownMenuTrigger must be used within DropdownMenu");
+  const { triggerRef, triggerId, contentId, popupRole, open, setOpen, setInitialFocus } = ctx;
   return (
     <button
       {...props}
       type="button"
-      ref={ctx.triggerRef}
-      id={ctx.triggerId}
-      aria-haspopup={ctx.popupRole}
-      aria-expanded={ctx.open}
-      aria-controls={ctx.open ? ctx.contentId : undefined}
+      ref={triggerRef}
+      id={triggerId}
+      aria-haspopup={popupRole}
+      aria-expanded={open}
+      aria-controls={open ? contentId : undefined}
       className={cn("rounded-md", className)}
       onClick={(event) => {
         onClick?.(event);
         if (event.defaultPrevented) return;
-        ctx.initialFocus.current = "first";
-        ctx.setOpen(!ctx.open);
+        setInitialFocus("first");
+        setOpen(!open);
       }}
       onKeyDown={(event) => {
         onKeyDown?.(event);
         if (event.defaultPrevented) return;
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
-          ctx.initialFocus.current = event.key === "ArrowUp" ? "last" : "first";
-          ctx.setOpen(true);
+          setInitialFocus(event.key === "ArrowUp" ? "last" : "first");
+          setOpen(true);
         }
       }}
     >
@@ -105,7 +107,7 @@ export function DropdownMenuContent({ align = "end", className, children }: { al
   React.useEffect(() => {
     if (!open || !ref.current) return;
     const items = ref.current.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)");
-    const index = initialFocus.current === "last" ? items.length - 1 : 0;
+    const index = initialFocus === "last" ? items.length - 1 : 0;
     items[index]?.focus({ preventScroll: true });
   }, [open, initialFocus]);
 

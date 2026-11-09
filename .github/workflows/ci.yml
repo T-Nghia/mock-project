@@ -203,7 +203,7 @@ jobs:
           PY
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24.22.2"
           cache: npm
           cache-dependency-path: |
             frontend/package-lock.json
@@ -247,7 +247,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24.22.2"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
@@ -256,7 +256,7 @@ jobs:
       - run: npm run build
 
   e2e-contract:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: e2e
@@ -264,10 +264,28 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24.22.2"
           cache: npm
           cache-dependency-path: e2e/package-lock.json
       - run: npm ci --no-audit --no-fund
+      - name: Build frontend for UI regression
+        working-directory: frontend
+        run: |
+          npm ci --no-fund
+          npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Run isolated UI contracts (API fixtures)
+        env:
+          APP_URL: http://127.0.0.1:3000
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/ui-contracts.json
+        run: |
+          npx playwright test --config playwright.ui.config.js --reporter=line,json
+          node - <<'JS'
+          const { stats } = require('./test-results/ui-contracts.json');
+          if (!stats || stats.expected === 0 || stats.skipped || stats.unexpected || stats.flaky) {
+            throw new Error('UI contracts must execute and pass without skips or flaky retries');
+          }
+          JS
       - name: Validate Playwright test discovery
         env:
           APP_URL: https://staging.example.com
@@ -276,9 +294,65 @@ jobs:
           SMOKE_PASSWORD: ci-placeholder-not-used
         run: npx playwright test --list
 
+  security-real-backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      CI_BACKEND_IMAGE: slrms-security-backend:${{ github.run_id }}-${{ github.run_attempt }}
+      CI_FRONTEND_IMAGE: slrms-security-frontend:${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.2"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate fixture safety helpers
+        run: python -m unittest discover -s e2e/scripts -p 'test_security_harness.py' -v
+      - run: npm --prefix e2e ci --no-audit --no-fund
+      - name: Install Chromium for reviewed Playwright
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+      - name: Build same-commit backend and production frontend
+        run: |
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "$CI_BACKEND_IMAGE" backend
+          docker build --build-arg "BUILD_REVISION=$GITHUB_SHA" \
+            --build-arg NEXT_PUBLIC_API_URL=http://localhost:8000 \
+            --tag "$CI_FRONTEND_IMAGE" frontend
+      - name: Run both real-backend security acceptance tests
+        run: |
+          python e2e/scripts/run-security-local.py \
+            --backend-image "$CI_BACKEND_IMAGE" --frontend-image "$CI_FRONTEND_IMAGE"
+      - name: Always clean up only owned security fixtures
+        if: always()
+        run: python e2e/scripts/run-security-local.py --cleanup-only
+      - name: Upload bounded sanitized fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-real-backend-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          path: |
+            .cache/frontend-security-next16/real-backend/result.json
+            .cache/frontend-security-next16/real-backend/fixtures.json
+            .cache/frontend-security-next16/real-backend/cleanup.json
+            .cache/frontend-security-next16/real-backend/fallback-cleanup.json
+            .cache/frontend-security-next16/real-backend/next16-*.log
+          if-no-files-found: warn
+          retention-days: 7
+
   containers:
     runs-on: ubuntu-latest
     env:
+      BUILD_REVISION: ${{ github.sha }}
       DATABASE_URL: postgresql+psycopg2://slrms:ci-password@db:5432/slrms
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET_KEY: ci-only-secret-that-is-at-least-32-characters
@@ -305,6 +379,8 @@ jobs:
           config = json.load(open('/tmp/compose.json'))
           for name in ('db', 'redis', 'minio'):
               assert not config['services'][name].get('ports'), f'{name} exposes host ports'
+          for port in config['services']['frontend'].get('ports', []):
+              assert port.get('host_ip') == '127.0.0.1', 'frontend bypasses ingress publicly'
           for name in ('migrate', 'backend', 'worker', 'cleanup'):
               for volume in config['services'][name].get('volumes', []):
                   if volume.get('type') == 'bind':

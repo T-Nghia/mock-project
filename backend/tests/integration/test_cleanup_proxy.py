@@ -97,6 +97,16 @@ class CleanupProxyTestCase(unittest.TestCase):
                             self.assertEqual(result.status, 200)
                         with request("/metrics") as result:
                             self.assertEqual(result.status, 404)
+                        # The app-site optimizer deny and API maintenance gate
+                        # must coexist without denying normal frontend routes.
+                        frontend = f"http://127.0.0.1:{frontend_port}"
+                        for path in ("/_next/image", "/_next/image?url=%2Fpreview.png&w=32&q=75", "/_next/image-extra"):
+                            with request(path, base=frontend) as result:
+                                self.assertEqual(result.status, 404)
+                        with request("/login", base=frontend) as result:
+                            self.assertEqual(result.status, 200)
+                        with request("/_next/image") as result:
+                            self.assertEqual(result.status, 200)
                     finally:
                         if process.poll() is None:
                             process.terminate()

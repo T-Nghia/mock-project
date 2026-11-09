@@ -20,21 +20,16 @@ export function CommentsSection({ documentId }: { documentId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  function load() {
-    setLoading(true);
+  useEffect(() => {
+    let cancelled = false;
     socialApi
       .listComments(documentId, 1, 50)
       .then((res) => {
-        setComments(res.items);
-        setTotal(res.total);
+        if (!cancelled) { setComments(res.items); setTotal(res.total); }
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [documentId]);
 
   async function handleSubmit(e: React.FormEvent) {

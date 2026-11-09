@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { FormError, formError } from "@/components/auth/form-error";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -18,20 +18,22 @@ interface FolderFormDialogProps {
 }
 
 export function FolderFormDialog({ open, onOpenChange, mode, parentName, initial, onSubmit }: FolderFormDialogProps) {
-  const [name, setName] = useState("");
-  const [subject, setSubject] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [subject, setSubject] = useState(initial?.subject ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lock = useRef(false);
   function close(value: boolean) { if (!lock.current) onOpenChange(value); }
 
-  useEffect(() => {
+  const [previous, setPrevious] = useState({ open, initial });
+  if (previous.open !== open || previous.initial !== initial) {
+    setPrevious({ open, initial });
     if (open) {
       setError(null);
       setName(initial?.name ?? "");
       setSubject(initial?.subject ?? "");
     }
-  }, [open, initial]);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

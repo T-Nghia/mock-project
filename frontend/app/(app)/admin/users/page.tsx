@@ -26,10 +26,17 @@ export default function AdminUsersPage() {
   const [attempt, setAttempt] = useState(0);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [change, setChange] = useState<Change | null>(null);
+  const requestKey = JSON.stringify([currentUser?.id, currentUser?.role, attempt]);
+  const [previousRequest, setPreviousRequest] = useState(requestKey);
+  if (previousRequest !== requestKey) {
+    setPreviousRequest(requestKey);
+    setLoading(true);
+    setError(false);
+  }
+
   useEffect(() => {
     if (currentUser?.role !== "admin") return;
     let cancelled = false;
-    setLoading(true); setError(false);
     authApi.listUsers().then((items) => { if (!cancelled) setUsers(items); })
       .catch(() => { if (!cancelled) setError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });

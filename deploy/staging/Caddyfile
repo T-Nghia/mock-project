@@ -15,7 +15,11 @@
 {$APP_DOMAIN} {
 	import security_headers
 	encode zstd gzip
-	reverse_proxy frontend:3000
+	route {
+		@image_optimizer path /_next/image*
+		respond @image_optimizer 404
+		reverse_proxy frontend:3000
+	}
 }
 
 {$API_DOMAIN} {
