@@ -19,7 +19,7 @@ from app.schemas.chat import (
     ChatSessionResponse,
 )
 from app.schemas.retrieval import Retriever
-from app.services.gemini_provider import GeminiProviderError
+from app.services.gemini_provider import GeminiProviderError, InvalidProviderOutputError
 
 
 REFUSAL_ANSWER = "Không tìm thấy thông tin này trong tài liệu đã chọn."
@@ -189,26 +189,45 @@ class ChatService:
             # every DB lock before calling the provider.
             self._get_writable_session(session_id, user_id)
             self.db.rollback()
+            context_by_index = {chunk.chunk_index: chunk for chunk in chunks}
             try:
                 generated = self.provider.answer(
                     question=content,
                     context=chunks,
                     history=history,
                 )
+                if generated.grounded is not False:
+                    indexes = generated.source_chunk_indexes
+                    if (
+                        generated.grounded is not True
+                        or not isinstance(generated.content, str)
+                        or not generated.content.strip()
+                        or not isinstance(indexes, list)
+                        or not indexes
+                        or any(
+                            type(index) is not int or index < 0 or index not in context_by_index
+                            for index in indexes
+                        )
+                    ):
+                        raise InvalidProviderOutputError("Grounded answer does not match the retrieved context.")
+            except InvalidProviderOutputError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail={
+                        "code": "INVALID_PROVIDER_OUTPUT",
+                        "message": "Dich vu Gemini tra ve cau tra loi khong hop le.",
+                    },
+                ) from exc
             except GeminiProviderError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="Dich vu Gemini tam thoi khong kha dung.",
                 ) from exc
 
-            if not generated.grounded:
+            if generated.grounded is False:
                 return self._save_answer(session_id, user_id, REFUSAL_ANSWER, [])
 
             selected_indexes = set(generated.source_chunk_indexes)
-            selected_chunks = [
-                chunk for chunk in chunks
-                if generated.grounded and chunk.chunk_index in selected_indexes
-            ]
             citations = [
                 ChatCitation(
                     chunk_id=chunk.chunk_id,
@@ -217,7 +236,8 @@ class ChatService:
                     score=chunk.score,
                     heading_path=chunk.heading_path,
                 )
-                for chunk in selected_chunks
+                for index, chunk in context_by_index.items()
+                if index in selected_indexes
             ]
             return self._save_answer(session_id, user_id, generated.content, citations)
         finally:

@@ -41,6 +41,10 @@ class GeminiProviderError(Exception):
     pass
 
 
+class InvalidProviderOutputError(GeminiProviderError):
+    """A provider response could not satisfy the chat answer contract."""
+
+
 class GeminiProvider:
     def __init__(
         self,
@@ -107,25 +111,29 @@ class GeminiProvider:
                 timeout=self.timeout_seconds,
             )
             response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise GeminiProviderError("Khong the nhan cau tra loi hop le tu Gemini.") from exc
+
+        try:
             body = response.json()
             text = body["candidates"][0]["content"]["parts"][0]["text"]
             data = json.loads(text)
-        except (httpx.HTTPError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
-            raise GeminiProviderError("Khong the nhan cau tra loi hop le tu Gemini.") from exc
+        except (ValueError, KeyError, IndexError, TypeError, RecursionError) as exc:
+            raise InvalidProviderOutputError("Gemini tra ve du lieu khong dung dinh dang.") from exc
 
         if not isinstance(data, dict):
-            raise GeminiProviderError("Gemini tra ve du lieu khong dung dinh dang.")
+            raise InvalidProviderOutputError("Gemini tra ve du lieu khong dung dinh dang.")
         content = data.get("content")
         grounded = data.get("grounded")
         source_indexes = data.get("source_chunk_indexes", [])
         if not isinstance(content, str) or not isinstance(grounded, bool):
-            raise GeminiProviderError("Gemini tra ve du lieu khong dung dinh dang.")
+            raise InvalidProviderOutputError("Gemini tra ve du lieu khong dung dinh dang.")
         if not isinstance(source_indexes, list) or not all(
             isinstance(index, int) and not isinstance(index, bool) for index in source_indexes
         ):
-            raise GeminiProviderError("Gemini tra ve source chunk khong dung dinh dang.")
+            raise InvalidProviderOutputError("Gemini tra ve source chunk khong dung dinh dang.")
         if grounded and not content.strip():
-            raise GeminiProviderError("Gemini tra ve du lieu khong dung dinh dang.")
+            raise InvalidProviderOutputError("Gemini tra ve du lieu khong dung dinh dang.")
         return GeneratedAnswer(
             content=content.strip(),
             grounded=grounded,

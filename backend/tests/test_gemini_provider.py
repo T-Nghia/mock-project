@@ -11,6 +11,7 @@ from app.services.gemini_provider import (
     GeneratedAnswer,
     GeminiProvider,
     GeminiProviderError,
+    InvalidProviderOutputError,
 )
 from app.core.config import settings
 
@@ -152,12 +153,13 @@ class GeminiProviderTestCase(unittest.TestCase):
                     api_key="key",
                     model="model",
                 )
-                with self.assertRaises(GeminiProviderError):
+                with self.assertRaises(GeminiProviderError) as error:
                     provider.answer(
                         question="Question",
                         context=[self.chunk()],
                         history=[],
                     )
+                self.assertNotIsInstance(error.exception, InvalidProviderOutputError)
 
     def test_answer_rejects_malformed_provider_response(self):
         responses = (
@@ -183,7 +185,7 @@ class GeminiProviderTestCase(unittest.TestCase):
                     api_key="key",
                     model="model",
                 )
-                with self.assertRaises(GeminiProviderError):
+                with self.assertRaises(InvalidProviderOutputError):
                     provider.answer(
                         question="Question",
                         context=[self.chunk()],
