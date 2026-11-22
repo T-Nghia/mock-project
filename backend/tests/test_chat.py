@@ -1,8 +1,10 @@
 import os
+import json
 import unittest
 import uuid
 from datetime import datetime, timezone
 
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -19,7 +21,7 @@ from app.models.document import Document, DocumentChunk, ProcessingStatus
 from app.models.folder import Folder  # noqa: F401 - register foreign-key table
 from app.models.user import User, UserRole
 from app.schemas.retrieval import RetrievedChunk
-from app.services.gemini_provider import GeneratedAnswer
+from app.services.gemini_provider import GeminiProvider, GeneratedAnswer
 
 
 class FakeRetriever:
@@ -453,6 +455,47 @@ class ChatAPITestCase(unittest.TestCase):
 
         self.assertEqual(empty.status_code, 422)
         self.assertEqual(switched.status_code, 422)
+
+    def test_invalid_provider_responses_return_public_502_and_persist_only_question(self):
+        cases = (
+            ("malformed envelope JSON", b"not-json"),
+            ("malformed answer JSON", "not-json"),
+            ("missing candidate", {"candidates": []}),
+            ("ungrounded flag of wrong type", {"grounded": "false", "content": "Answer"}),
+            ("mixed citations", {"grounded": True, "content": "Answer", "source_chunk_indexes": [0, 999]}),
+            ("boolean citation", {"grounded": True, "content": "Answer", "source_chunk_indexes": [False]}),
+        )
+        for name, value in cases:
+            with self.subTest(name=name):
+                session = self.create_session()
+                calls = []
+
+                def respond(request):
+                    calls.append(request)
+                    if isinstance(value, bytes):
+                        return httpx.Response(200, content=value)
+                    if name == "missing candidate":
+                        return httpx.Response(200, json=value)
+                    answer_text = value if isinstance(value, str) else json.dumps(value)
+                    return httpx.Response(200, json={"candidates": [
+                        {"content": {"parts": [{"text": answer_text}]}}
+                    ]})
+
+                with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+                    provider = GeminiProvider(client=client, api_key="test-key", model="test-model")
+                    app.dependency_overrides[get_answer_provider] = lambda: provider
+                    response = self.client.post(
+                        f"/chat/sessions/{session['id']}/messages", headers=self.student_headers,
+                        json={"content": "Question"},
+                    )
+
+                self.assertEqual(response.status_code, 502, response.text)
+                self.assertEqual(response.json()["detail"]["code"], "INVALID_PROVIDER_OUTPUT")
+                self.assertEqual(len(calls), 1)
+                with TestingSessionLocal() as db:
+                    messages = db.query(ChatMessage).filter_by(session_id=uuid.UUID(session["id"])).all()
+                    self.assertEqual([(m.role, m.content, m.source_chunks) for m in messages],
+                                     [("user", "Question", None)])
 
     def test_ask_returns_sources_and_history_maps_persisted_citations(self):
         session = self.create_session()

@@ -181,6 +181,85 @@ class ChatServiceTestCase(unittest.TestCase):
         self.assertEqual([message.role for message in messages], ["user", "assistant"])
         self.assertEqual(messages[1].source_chunks[0]["chunk_id"], str(retrieved.chunk_id))
 
+    def test_invalid_grounded_output_never_saves_an_assistant_message(self):
+        document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
+        chunks = [
+            RetrievedChunk(
+                chunk_id=uuid.uuid4(), document_id=document.id, chunk_index=index,
+                content=f"Retrieved chunk {index}", score=0.9,
+            )
+            for index in (2, 7)
+        ]
+        for content, indexes in (
+            ("Answer", []),
+            ("Answer", [999]),
+            ("Answer", [2, 999]),
+            ("Answer", [2, -1]),
+            ("Answer", [2, True]),
+            ("Answer", [2, 7.0]),
+            ("Answer", [2, "7"]),
+            ("   ", [2]),
+        ):
+            with self.subTest(content=content, indexes=indexes):
+                service, _, provider = self.service(
+                    chunks=chunks,
+                    answer=GeneratedAnswer(content=content, grounded=True, source_chunk_indexes=indexes),
+                )
+                session_id = service.create_session(document_id=document.id, current_user=self.user).id
+                with self.assertRaises(HTTPException) as error:
+                    service.ask(session_id=session_id, content="Question", current_user=self.user)
+                self.assertEqual(error.exception.status_code, 502)
+                self.assertEqual(error.exception.detail["code"], "INVALID_PROVIDER_OUTPUT")
+                self.assertEqual(len(provider.calls), 1)
+                self.assertEqual(provider.calls[0][1], chunks)
+                self.assertFalse(self.db.in_transaction())
+                with TestingSessionLocal() as verifier:
+                    messages = verifier.query(ChatMessage).filter_by(session_id=session_id).all()
+                    self.assertEqual([(m.role, m.content, m.source_chunks) for m in messages],
+                                     [("user", "Question", None)])
+
+    def test_valid_indexes_are_deduplicated_in_retrieval_order_with_server_snapshots(self):
+        document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
+        chunks = [
+            RetrievedChunk(
+                chunk_id=uuid.uuid4(), document_id=document.id, chunk_index=index,
+                content=f"Retrieved chunk {index}", score=score, heading_path=[f"Section {index}"],
+            )
+            for index, score in ((2, 0.9), (7, 0.8))
+        ]
+        service, _, _ = self.service(
+            chunks=chunks,
+            answer=GeneratedAnswer(content="Answer", grounded=True, source_chunk_indexes=[7, 2, 7, 2]),
+        )
+        session_id = service.create_session(document_id=document.id, current_user=self.user).id
+        reply = service.ask(session_id=session_id, content="Question", current_user=self.user)
+
+        snapshots = [
+            {"chunk_id": str(c.chunk_id), "chunk_index": c.chunk_index, "quote": c.content,
+             "score": c.score, "heading_path": c.heading_path}
+            for c in chunks
+        ]
+        self.assertEqual(reply.model_dump(mode="json"), {"answer": "Answer", "sources": snapshots})
+        with TestingSessionLocal() as verifier:
+            assistant = verifier.query(ChatMessage).filter_by(session_id=session_id, role="assistant").one()
+            self.assertEqual(assistant.content, "Answer")
+            self.assertEqual(assistant.source_chunks, snapshots)
+
+    def test_boolean_index_does_not_alias_an_integer_in_context(self):
+        document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
+        chunk = RetrievedChunk(
+            chunk_id=uuid.uuid4(), document_id=document.id, chunk_index=1,
+            content="Retrieved chunk one", score=0.9,
+        )
+        service, _, _ = self.service(
+            chunks=[chunk],
+            answer=GeneratedAnswer(content="Answer", grounded=True, source_chunk_indexes=[True]),
+        )
+        session_id = service.create_session(document_id=document.id, current_user=self.user).id
+        with self.assertRaises(HTTPException) as error:
+            service.ask(session_id=session_id, content="Question", current_user=self.user)
+        self.assertEqual(error.exception.status_code, 502)
+
     def test_empty_or_ungrounded_context_returns_refusal_without_sources(self):
         document = self.create_document(ProcessingStatus.DONE, with_chunk=True)
         service, _, provider = self.service()
